@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRAP DEVIL: RAGE EDITION</title>
+    
+    <!-- Main Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- 
+        Three.js CDN: We are using r128 which is highly stable for Web.
+        It provides the 3D rendering engine (Scene, Camera, WebGL Renderer).
+    -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <!-- ==========================================
+         UI LAYER: Overlays on top of the 3D Canvas
+         ========================================== -->
+    <div id="ui-layer">
+
+        <!-- 1. MAIN MENU: The entry point of suffering -->
+        <div id="main-menu" class="overlay">
+            <div class="menu-content">
+                <h1 class="game-title">TRAP DEVIL<span class="subtitle">: RAGE EDITION</span></h1>
+                <p class="tagline">“You don't lose because you're bad. You lose because the level hates you.”</p>
+                
+                <div class="btn-group">
+                    <!-- Data attributes can be used later to easily parse player count in JS -->
+                    <button class="btn btn-primary" id="btn-1p" data-players="1">1 PLAYER (Suffer Alone)</button>
+                    <button class="btn btn-danger" id="btn-2p" data-players="2">2 PLAYERS (Destroy Friendships)</button>
+                </div>
+
+                <div class="controls-info">
+                    <p><strong>P1:</strong> WASD + Space</p>
+                    <p><strong>P2:</strong> Arrow Keys + Shift</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. HUD: Visible during gameplay -->
+        <div id="hud" class="hidden">
+            <!-- Left side: Death counter (Rage meter) -->
+            <div id="hud-left">
+                <span id="death-counter">DEATHS: 0 🤬</span>
+            </div>
+            
+            <!-- Center: Troll warnings / Trap activation text -->
+            <div id="hud-center">
+                <span id="warning-text"></span>
+            </div>
+
+            <!-- Right side: Level progression -->
+            <div id="hud-right">
+                <span id="level-indicator">LEVEL: 1 / 100</span>
+            </div>
+        </div>
+
+        <!-- 3. DEATH SCREEN: The most common screen in the game -->
+        <div id="death-screen" class="overlay hidden">
+            <div class="death-content">
+                <h2 class="death-title">YOU DIED</h2>
+                <!-- Dynamic reason injected by JS (e.g., "The floor was a lie") -->
+                <p id="death-reason">Reason: The level hates you.</p>
+                <button class="btn btn-primary" id="btn-retry">TRY AGAIN (Cry More)</button>
+            </div>
+        </div>
+
+        <!-- 4. LEVEL COMPLETE SCREEN: Brief glimmer of hope -->
+        <div id="level-complete" class="overlay hidden">
+            <div class="complete-content">
+                <h2 class="complete-title">LEVEL CLEARED</h2>
+                <p>Don't get comfortable. The next one is worse.</p>
+                <button class="btn btn-primary" id="btn-next-level">NEXT LEVEL</button>
+            </div>
+        </div>
+
+        <!-- 5. FAKE PAUSE MENU: Troll Mechanic 😈 -->
+        <!-- 
+            This is a core troll mechanic. When user presses ESC, this menu appears.
+            BUT, the game loop in main.js keeps running. The player keeps falling/dying 
+            while they think the game is paused.
+        -->
+        <div id="fake-pause" class="overlay hidden">
+            <div class="pause-content">
+                <h2>PAUSED</h2>
+                <p>Press ESC to resume...</p>
+                <p class="troll-text">(Or don't. The game isn't actually paused. You are still falling.)</p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==========================================
+         GAME CONTAINER: The 3D Canvas
+         ========================================== -->
+    <!-- 
+        Three.js will automatically create a <canvas> element and append it 
+        inside this div during initialization in js/main.js.
+    -->
+    <div id="game-container"></div>
+
+
+    <!-- ==========================================
+         JAVASCRIPT: The Logic & Engine
+         ========================================== -->
+    <!-- 
+        Using type="module" allows us to use ES6 import/export syntax.
+        This is crucial for our modular folder structure (js/main.js, js/player.js, etc.)
+    -->
+    <script type="module" src="js/main.js"></script>
+
+</body>
+</html>
