@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node tools/serve.cjs",
     "validate": "node tools/validate-levels.cjs",
-    "test": "node tools/smoke-test.cjs"
+    "test": "node tools/smoke-test.cjs",
+    "build:single": "node tools/build-single-file.cjs"
   },
   "keywords": [
     "game",
