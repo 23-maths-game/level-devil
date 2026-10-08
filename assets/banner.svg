@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16060f"/>
+      <stop offset="1" stop-color="#33101d"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#b71c1c"/>
+      <stop offset="0.6" stop-color="#ff5252"/>
+      <stop offset="1" stop-color="#ff8a80"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="300" fill="url(#bg)"/>
+  <g fill="#ff2d55" opacity="0.12">
+    <circle cx="90" cy="60" r="3"/><circle cx="210" cy="140" r="2"/><circle cx="340" cy="50" r="2.5"/>
+    <circle cx="520" cy="110" r="2"/><circle cx="700" cy="40" r="3"/><circle cx="880" cy="150" r="2"/>
+    <circle cx="1050" cy="70" r="2.5"/><circle cx="1140" cy="180" r="2"/><circle cx="460" cy="200" r="2"/>
+    <circle cx="640" cy="220" r="2.5"/><circle cx="980" cy="230" r="2"/>
+  </g>
+  <g transform="translate(600,118)">
+    <path d="M -46 -34 L -20 -66 L -8 -38 L 0 -78 L 8 -38 L 20 -66 L 46 -34 L 30 -30 L 0 -18 L -30 -30 Z" fill="#ff5252"/>
+    <text x="0" y="0" text-anchor="middle" font-family="Verdana, sans-serif" font-weight="900" font-size="64" fill="url(#fire)" letter-spacing="4">TRAP DEVIL</text>
+    <text x="0" y="52" text-anchor="middle" font-family="Verdana, sans-serif" font-weight="700" font-size="26" fill="#ff8a80" letter-spacing="12">RAGE EDITION 😈</text>
+    <text x="0" y="92" text-anchor="middle" font-family="Verdana, sans-serif" font-size="16" fill="#b0bec5" font-style="italic">"You don't lose because you're bad. You lose because the level hates you."</text>
+    <text x="0" y="128" text-anchor="middle" font-family="Verdana, sans-serif" font-size="15" fill="#ce93d8">120 levels · 15 troll mechanics · 1-2 players · but always FAIR</text>
+  </g>
+  <g fill="#1c1f26">
+    <rect x="0" y="262" width="1200" height="38"/>
+  </g>
+  <g fill="#c62828">
+    <path d="M0 262 l20 0 l10 -22 l10 22z M60 262 l20 0 l10 -22 l10 22z M120 262 l20 0 l10 -22 l10 22z M180 262 l20 0 l10 -22 l10 22z M240 262 l20 0 l10 -22 l10 22z M300 262 l20 0 l10 -22 l10 22z M360 262 l20 0 l10 -22 l10 22z M420 262 l20 0 l10 -22 l10 22z M480 262 l20 0 l10 -22 l10 22z M540 262 l20 0 l10 -22 l10 22z M600 262 l20 0 l10 -22 l10 22z M660 262 l20 0 l10 -22 l10 22z M720 262 l20 0 l10 -22 l10 22z M780 262 l20 0 l10 -22 l10 22z M840 262 l20 0 l10 -22 l10 22z M900 262 l20 0 l10 -22 l10 22z M960 262 l20 0 l10 -22 l10 22z M1020 262 l20 0 l10 -22 l10 22z M1080 262 l20 0 l10 -22 l10 22z M1140 262 l20 0 l10 -22 l10 22z"/>
+  </g>
+</svg>
