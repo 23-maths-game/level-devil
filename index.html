@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trap Devil: Rage Edition 😈</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😈</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="hud-level"></div>
+      <div id="hud-right">
+        <span id="hud-mode"></span>
+        <span id="hud-time"></span>
+        <span id="hud-deaths"></span>
+      </div>
+    </div>
+    <div id="rage"><div id="rage-fill"></div><span id="rage-label"></span></div>
+    <div id="hud-status"></div>
+    <div id="hud-hint"></div>
+    <div id="hud-controls">P1: A/D move · W jump &nbsp;|&nbsp; P2: ←/→ move · ↑ jump &nbsp;|&nbsp; H hint · R restart · M mute &nbsp;|&nbsp; tap ESC = fake pause 😈 · HOLD ESC = real pause</div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- MAIN MENU -->
+  <div id="screen-menu" class="screen">
+    <div class="panel menu-panel">
+      <h1 class="glitch">TRAP DEVIL</h1>
+      <div class="subtitle">RAGE EDITION 😈</div>
+      <div class="tagline">"You don't lose because you're bad.<br>You lose because the level hates you."</div>
+      <div class="btn-col">
+        <button class="btn btn-big" id="btn-1p">😤 1 PLAYER</button>
+        <button class="btn btn-big" id="btn-2p">👥 2 PLAYERS — shared fate</button>
+        <button class="btn" id="btn-select">🗺 LEVEL SELECT (120)</button>
+        <button class="btn" id="btn-howto">❓ HOW TO PLAY</button>
+        <button class="btn sound-toggle">🔊 SOUND: ON</button>
+      </div>
+      <div class="footer">Made with vanilla JS + pure spite · zero dependencies · zero assets</div>
+    </div>
+  </div>
+
+  <!-- LEVEL SELECT -->
+  <div id="screen-select" class="screen hidden">
+    <div class="panel wide">
+      <h2>🗺 LEVEL SELECT</h2>
+      <div class="mode-row">
+        <button class="btn mode-pick active" data-mode="1">😤 1 Player</button>
+        <button class="btn mode-pick" data-mode="2">👥 2 Players</button>
+      </div>
+      <div id="level-grid"></div>
+      <div class="btn-row">
+        <button class="btn" id="btn-menu-from-select">← Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW TO PLAY -->
+  <div id="screen-howto" class="screen hidden">
+    <div class="panel wide">
+      <h2>❓ HOW TO PLAY</h2>
+      <div class="howto-grid">
+        <div>
+          <h3>Controls</h3>
+          <ul>
+            <li><b>P1:</b> A/D move, W or Space jump</li>
+            <li><b>P2:</b> ←/→ move, ↑ jump</li>
+            <li><b>H</b> hint · <b>R</b> restart · <b>M</b> mute</li>
+            <li><b>Tap ESC</b> = fake pause 😈 (troll)</li>
+            <li><b>HOLD ESC</b> (0.8s) or <b>`</b> = real pause</li>
+          </ul>
+          <h3>2-Player rule</h3>
+          <ul><li><b>Shared fate:</b> if one player dies, BOTH restart. Also, both players must stand on the goal together.</li></ul>
+        </div>
+        <div>
+          <h3>⚖️ The Fairness Promise</h3>
+          <p>No random impossible death. <b>Every trap has a TELL</b> — a visual or audio warning before it strikes. Die to a trap once and the game shows you a hint (press H anytime).</p>
+          <h3>😈 Trap tells</h3>
+          <ul class="tells">
+            <li>Crumbling floor — shakes + cracks before it vanishes</li>
+            <li>Coward floor — cracks while you stand; vanishes when you leave</li>
+            <li>Fake platform — dashed outline, slightly transparent</li>
+            <li>Invisible wall — flashes when you bump it</li>
+            <li>Reverse zone — purple + ⇄ icon</li>
+            <li>Camera flip — cyan zone + warning toast</li>
+            <li>Layout shift — orange zone + audible RUMBLE</li>
+            <li>Teleport pad — swirl animation</li>
+            <li>Fake checkpoint — purple flickering flag (real = green, steady)</li>
+            <li>Fake finish — gray flag, no glow (real = glowing portal)</li>
+            <li>Wrong lever — red handle (real = green)</li>
+            <li>Killer door — red pulsing outline</li>
+            <li>Rock spawner — shadow on the ground BEFORE the rock drops</li>
+            <li>Crusher — shadow + warning before it drops</li>
+          </ul>
+        </div>
+      </div>
+      <div class="btn-row"><button class="btn" id="btn-menu-from-howto">← Back</button></div>
+    </div>
+  </div>
+
+  <!-- REAL PAUSE -->
+  <div id="screen-pause" class="screen hidden">
+    <div class="panel wide">
+      <h2>⏸ PAUSED — for real this time</h2>
+      <h3>😈 Trollpedia (traps discovered: <span id="trap-count">0</span>)</h3>
+      <div id="trollpedia"></div>
+      <div class="btn-row">
+        <button class="btn btn-big" id="btn-resume">▶ Resume</button>
+        <button class="btn" id="btn-restart">🔁 Restart level</button>
+        <button class="btn sound-toggle">🔊 SOUND: ON</button>
+        <button class="btn btn-danger" id="btn-quit">🏠 Quit to menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAKE PAUSE (troll) -->
+  <div id="screen-fakepause" class="screen hidden">
+    <div class="panel fake">
+      <h2>⏸ PAUSED <span class="allegedly">(allegedly)</span></h2>
+      <p class="fake-note">This menu is 100% real. Trust us.</p>
+      <div class="btn-col">
+        <button class="btn btn-big" id="btn-fake-resume">▶ Resume</button>
+        <button class="btn btn-danger" id="btn-fake-quit">😤 Rage Quit</button>
+      </div>
+      <div class="footer">psst — real pause = HOLD ESC</div>
+    </div>
+  </div>
+
+  <!-- LEVEL COMPLETE -->
+  <div id="screen-complete" class="screen hidden">
+    <div class="panel">
+      <h2 id="complete-title">LEVEL COMPLETE 😈</h2>
+      <div id="complete-stats" class="stats"></div>
+      <div class="btn-row">
+        <button class="btn btn-big" id="btn-next">▶ Next level</button>
+        <button class="btn" id="btn-retry">🔁 Retry</button>
+        <button class="btn" id="btn-complete-menu">🏠 Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WIN SCREEN -->
+  <div id="screen-win" class="screen hidden">
+    <div class="panel">
+      <h1 class="glitch small">🏆 YOU SURVIVED</h1>
+      <div class="subtitle">TRAP DEVIL: RAGE EDITION — COMPLETED</div>
+      <div id="win-stats" class="stats"></div>
+      <div class="btn-row">
+        <button class="btn btn-big" id="btn-play-again">😈 Play again</button>
+        <button class="btn" id="btn-win-menu">🏠 Menu</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/audio.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
