@@ -4,7 +4,7 @@
    Run: npm test
    ============================================================ */
 'use strict';
-const { LEVEL_DEFS } = require('../js/levels.js');
+const { LEVEL_DEFS, generateLevelDef } = require('../js/levels.js');
 const TD = require('../js/engine.js');
 const { createState, update } = TD;
 
@@ -146,6 +146,127 @@ console.log('🧪 Smoke tests (headless engine)\n');
     t += DT;
   }
   check('2P: goal requires BOTH players ("waiting" event)', st.events.some(e => e.type === 'waiting') && !st.complete);
+}
+
+// ---------- RAGE EDITION 2.0 tests ----------
+const idle = () => noInput;
+const holdLeft = () => [{ left: true, right: false, jump: false, jumpPressed: false }];
+
+// 16. L121: laser kills only while ON
+{
+  const st = createState(LEVEL_DEFS[120], 120, 1);
+  const p = st.players[0];
+  p.x = 9 * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0; // inside laser tile (9,8)
+  st.laserOn = true;
+  update(st, DT, noInput);
+  check('L121 laser: kills the player while ON', st.deaths === 1 && st.events.some(e => e.type === 'death' && e.cause === 'laser'));
+}
+{
+  const st = createState(LEVEL_DEFS[120], 120, 1);
+  const p = st.players[0];
+  p.x = 9 * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0;
+  st.laserOn = false;
+  update(st, DT, noInput);
+  check('L121 laser: safe while OFF', st.deaths === 0);
+}
+{
+  const st = run(LEVEL_DEFS[120], 120, 1, idle, 3);
+  check('L121 laser: toggles on a cycle', st.events.some(e => e.type === 'laser'));
+}
+
+// 17. L124: conveyor belt carries the player without input
+{
+  const st = createState(LEVEL_DEFS[123], 123, 1);
+  const p = st.players[0];
+  p.x = 7 * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0; // standing on conveyor (7,9)
+  let t = 0;
+  while (t < 0.3) { update(st, DT, idle()); t += DT; }
+  check('L124 conveyor: belt carries the player without input', p.x > 340);
+}
+
+// 18. L126: ice floor = low friction, player keeps sliding
+{
+  const st = createState(LEVEL_DEFS[125], 125, 1);
+  const p = st.players[0];
+  p.x = 8 * 40 + 20; p.y = 360; p.vx = 300; p.vy = 0; // on ice (8,9)
+  let t = 0;
+  while (t < 0.3) { update(st, DT, idle()); t += DT; }
+  check('L126 ice: player keeps sliding (low friction)', p.vx > 150);
+}
+
+// 19. L130: one-way door — pass left→right, blocked right→left
+{
+  const st = createState(LEVEL_DEFS[129], 129, 1);
+  const p = st.players[0];
+  p.x = 4 * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0; // left of the door (5,8)
+  let t = 0;
+  while (t < 0.5) { update(st, DT, holdRight()); t += DT; }
+  check('L130 one-way door: passable left → right', p.x > 260);
+}
+{
+  const st = createState(LEVEL_DEFS[129], 129, 1);
+  const p = st.players[0];
+  p.x = 7 * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0; // right of the door
+  let t = 0;
+  while (t < 0.5) { update(st, DT, holdLeft()); t += DT; }
+  check('L130 one-way door: blocked right → left', p.x > 240 && p.x < 270);
+}
+
+// 20. L133: level timer runs out → run over
+{
+  const st = createState(LEVEL_DEFS[132], 132, 1);
+  st.timeLeft = 0.5;
+  let t = 0;
+  while (t < 1.2) { update(st, DT, idle()); t += DT; }
+  check('L133 timer: time runs out → timeup + death', st.timeUp && st.events.some(e => e.type === 'timeup') && st.deaths >= 1);
+}
+
+// 21. L150: The Devil (boss) moves and kills
+{
+  const st = createState(LEVEL_DEFS[149], 149, 1);
+  const bx0 = st.boss.x;
+  let t = 0;
+  while (t < 1) { update(st, DT, idle()); t += DT; }
+  check('L150 boss: The Devil moves', st.boss && st.boss.x !== bx0);
+  const p = st.players[0];
+  p.x = st.boss.x + 10; p.y = st.boss.y + 10; p.vx = 0; p.vy = 0;
+  update(st, DT, idle());
+  check('L150 boss: touching The Devil kills', st.events.some(e => e.type === 'death' && e.cause === 'boss'));
+}
+
+// 22. Rage mode: crumble floor vanishes FASTER
+{
+  const st = createState(LEVEL_DEFS[4], 4, 1);
+  st.rageMul = 0.55;
+  let t = 0;
+  while (t < 3 && st.players[0].x < 255) { update(st, DT, holdRight()); t += DT; } // walk onto the D tile
+  while (t < 0.95) { update(st, DT, idle()); t += DT; }                              // stand ~0.5s (< 0.6s, > 0.33s)
+  check('Rage mode: crumble floor vanishes FASTER (0.33s, not 0.6s)', !st.level.solidAt(6, 7));
+}
+
+// 23. Hardcore: first death ends the run
+{
+  const st = createState(LEVEL_DEFS[1], 1, 1, { hardcore: true });
+  let t = 0;
+  while (t < 4) { update(st, DT, holdRight()); t += DT; }
+  check('Hardcore: first death ends the run (runOver)', st.runOver && st.events.some(e => e.type === 'runover'));
+}
+
+// 24. Endless: generated hell levels parse + spawn
+{
+  let ok = true;
+  try {
+    const s1 = createState(generateLevelDef(151), 150, 1);
+    const s2 = createState(generateLevelDef(199), 198, 1);
+    ok = !!s1.level.spawn && !!s1.level.goal && !!s2.level.spawn && !!s2.level.goal;
+  } catch (e) { ok = false; }
+  check('Endless: generated hell levels (151, 199) parse + spawn', ok);
+}
+
+// 25. HELL tier structure
+{
+  check('HELL tier: L136 is dark, L150 is the boss level', LEVEL_DEFS[135].dark === true && LEVEL_DEFS[149].boss === true);
+  check('HELL tier: 150 levels total', LEVEL_DEFS.length === 150);
 }
 
 console.log('');

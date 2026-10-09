@@ -63,6 +63,23 @@ const AudioFX = {
   },
 
   jump() { this.tone(440, 0.12, 'square', 0.12, 880); },
+  hum() { this.tone(110, 0.35, 'sawtooth', 0.07, 90); this.tone(165, 0.35, 'square', 0.04, 140); },
+  roar() {
+    this.noise(0.5, 0.25, 300);
+    this.tone(70, 0.5, 'sawtooth', 0.2, 40);
+    this.tone(55, 0.6, 'square', 0.15, 30, 0.1);
+  },
+  rageOn() {
+    this.tone(220, 0.15, 'sawtooth', 0.18, 110, 0);
+    this.tone(180, 0.15, 'sawtooth', 0.18, 90, 0.12);
+    this.tone(140, 0.3, 'sawtooth', 0.2, 60, 0.24);
+    this.noise(0.3, 0.12, 800, 0.05);
+  },
+  timeup() {
+    this.tone(880, 0.12, 'square', 0.15);
+    this.tone(880, 0.12, 'square', 0.15, 0, 0.15);
+    this.tone(440, 0.5, 'sawtooth', 0.18, 220, 0.3);
+  },
   land() { this.noise(0.06, 0.08, 900); },
   click() { this.tone(700, 0.05, 'square', 0.1); },
   tick() { this.tone(1200, 0.03, 'square', 0.06); },

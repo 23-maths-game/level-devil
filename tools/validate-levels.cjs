@@ -73,33 +73,55 @@ function reachable(level) {
   return false;
 }
 
-console.log('🔍 Validating ' + LEVEL_DEFS.length + ' levels…');
+console.log('🔍 Validating ' + LEVEL_DEFS.length + ' levels + 30 endless samples…');
 for (let i = 0; i < LEVEL_DEFS.length; i++) {
-  const def = LEVEL_DEFS[i];
+  validateDef(LEVEL_DEFS[i], i);
+}
+// ♾️ endless mode: prove generated hell levels (151-180) are beatable too
+for (let n = 151; n <= 180; n++) {
+  validateDef(require('../js/levels.js').generateLevelDef(n), 150 + (n - 150), 'endless ' + n);
+}
+
+function validateDef(def, i, tag) {
   const w = def.map[0].length;
   def.map.forEach((row, y) => {
-    if (row.length !== w) fail(i, 'row ' + y + ' has width ' + row.length + ', expected ' + w);
+    if (row.length !== w) fail(i, (tag ? '[' + tag + '] ' : '') + 'row ' + y + ' has width ' + row.length + ', expected ' + w);
   });
   let level;
   try {
     level = parseLevel(def, i);
   } catch (e) {
-    fail(i, 'parse error: ' + e.message);
-    continue;
+    fail(i, (tag ? '[' + tag + '] ' : '') + 'parse error: ' + e.message);
+    return;
   }
-  if (!level.solidAt(level.spawn.x, level.spawn.y + 1)) fail(i, 'no floor under spawn');
+  if (!level.solidAt(level.spawn.x, level.spawn.y + 1)) fail(i, (tag ? '[' + tag + '] ' : '') + 'no floor under spawn');
   // apply layout-shift ops (the optimistic case: shift has triggered)
   if (level.shift) {
     for (const t of level.shift.add) level.solids[t.y * level.w + t.x] = 1;
     for (const t of level.shift.remove) level.solids[t.y * level.w + t.x] = 0;
     for (const t of level.shift.spike) level.hazards[t.y * level.w + t.x] = 1;
   }
-  if (!reachable(level)) fail(i, 'GOAL NOT REACHABLE — level is impossible ❌');
+  // one-way doors (@) only block BACKTRACKING — forward progress is always possible
+  for (let y = 0; y < level.h; y++) {
+    for (let x = 0; x < level.w; x++) {
+      if (def.map[y][x] === '@') level.solids[y * level.w + x] = 0;
+    }
+  }
+  // moving platforms: their whole path is standable at some point in time
+  for (const t of (def.traps || [])) {
+    if (t.type === 'mover') {
+      const x0 = Math.min(t.x, t.x2), x1 = Math.max(t.x, t.x2);
+      for (let x = x0; x <= x1; x++) {
+        if (x >= 0 && x < level.w && t.y >= 0 && t.y < level.h) level.solids[t.y * level.w + x] = 1;
+      }
+    }
+  }
+  if (!reachable(level)) fail(i, (tag ? '[' + tag + '] ' : '') + 'GOAL NOT REACHABLE — level is impossible ❌');
 }
 
 console.log('');
 if (failures === 0) {
-  console.log('✅ ALL ' + TOTAL_LEVELS + ' LEVELS PASS — every level is beatable. The ONE RULE holds.');
+  console.log('✅ ALL ' + TOTAL_LEVELS + ' LEVELS + 30 ENDLESS SAMPLES PASS — every level is beatable. The ONE RULE holds.');
 } else {
   console.error('❌ ' + failures + ' problem(s) found.');
   process.exit(1);

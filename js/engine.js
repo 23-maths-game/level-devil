@@ -37,6 +37,10 @@ function parseLevel(def, index) {
   const coward = new Map();   // idx -> {state, t}
   const fakePlats = new Set();
   const invis = new Map();    // idx -> {t}
+  const lasers = new Set();        // idx — laser tiles (hazard only while ON)
+  const conveyors = new Map();     // idx -> +1 (right) / -1 (left)
+  const ice = new Set();           // idx — slippery floor tiles
+  const onewayDoors = new Set();   // idx — solid, passable left→right only
   let spawn = null, spawn2 = null, goal = null;
 
   for (let y = 0; y < h; y++) {
@@ -65,6 +69,11 @@ function parseLevel(def, index) {
         case 'O': entities.push({ type: 'door', x, y, open: false, openT: 0 }); solids[i] = 1; break;
         case 'X': entities.push({ type: 'killerdoor', x, y }); break;
         case 'S': entities.push({ type: 'spawner', x, y, timer: 2, warn: 0, floorY: 0 }); break;
+        case 'B': lasers.add(i); break;                       // laser beam (toggles)
+        case '>': case '<': solids[i] = 1; conveyors.set(i, c === '>' ? 1 : -1); break;
+        case '~': solids[i] = 1; ice.add(i); break;           // ice floor (slippery)
+        case '@': solids[i] = 1; onewayDoors.add(i); break;   // one-way door →
+        case '&': zones.push({ kind: 'wind', x, y, w: 1, h: 1 }); break; // updraft
         case 'E': case 'M': break; // linked via def.traps below
         case 'P': spawn = { x, y }; break;
         case 'Q': spawn2 = { x, y }; break;
@@ -95,6 +104,7 @@ function parseLevel(def, index) {
     index, name: def.name, hint: def.hint,
     w, h, solids, hazards, oneway, zones, entities,
     crumble, coward, fakePlats, invis,
+    lasers, conveyors, ice, onewayDoors,
     spawn, spawn2, goal, shift, shiftDone: false, def,
     solidAt(x, y) { return x >= 0 && y >= 0 && x < w && y < h && solids[y * w + x] === 1; },
     hazardAt(x, y) { return x >= 0 && y >= 0 && x < w && y < h && hazards[y * w + x] === 1; },
@@ -153,7 +163,8 @@ class Player {
 }
 
 /* ---------- state ---------- */
-function createState(def, index, mode) {
+function createState(def, index, mode, opts) {
+  opts = opts || {};
   const level = parseLevel(def, index);
   const st = {
     level, mode, index,
@@ -173,8 +184,28 @@ function createState(def, index, mode) {
     checkpoint: null,
     checkpointTile: null,
     firstDeathDone: false,
-    _goalWarned: -10
+    _goalWarned: -10,
+    // RAGE EDITION 2.0
+    rageMul: opts.rageMul || 1,     // <1 = traps get FASTER (rage mode)
+    hardcore: !!opts.hardcore,     // 1 life — first death ends the run
+    runOver: false,
+    timeUp: false,
+    laserOn: false,
+    laserT: 0,
+    laserPeriod: def.laserPeriod || 1.6,
+    timeLeft: def.timeLimit || Infinity,
+    dark: !!def.dark,
+    boss: null
   };
+  if (level.lasers.size) st.laserT = st.laserPeriod / 2; // grace period, starts OFF
+  if (def.boss) {
+    const bw = 3 * TILE, bh = 2 * TILE;
+    const floorRow = level.h - 2; // arena floor (bedrock is the last row)
+    st.boss = {
+      x: level.w * TILE - bw - 2 * TILE, y: floorRow * TILE - bh,
+      w: bw, h: bh, vx: 150, dir: -1, pause: 0, t: 0
+    };
+  }
   const p1 = new Player(level.spawn.x * TILE + TILE / 2, (level.spawn.y + 1) * TILE, '#4dd0e1', 'P1');
   st.players.push(p1);
   if (mode === 2) {
@@ -198,18 +229,44 @@ function createState(def, index, mode) {
 
 /* ---------- main update ---------- */
 function update(st, dt, inputs) {
-  if (!st.complete) st.time += dt;
+  const ended = st.complete || st.runOver || st.timeUp;
+  if (!ended) st.time += dt;
   if (st.cameraFlip > 0) st.cameraFlip -= dt;
   if (st.shake > 0) st.shake = Math.max(0, st.shake - dt * 3);
   if (st.goalFlash > 0) st.goalFlash -= dt;
 
   updateEntities(st, dt);
+  if (st.boss) updateBoss(st, dt);
+
+  // laser toggle (level-wide phase; rage mode shortens the cycle)
+  if (st.level.lasers.size && !ended) {
+    st.laserT -= dt;
+    if (st.laserT <= 0) {
+      st.laserOn = !st.laserOn;
+      st.laserT = (st.laserPeriod / 2) * (st.rageMul || 1);
+      st.events.push({ type: 'laser', on: st.laserOn });
+    }
+  }
+
+  // level timer (the TELL is the HUD countdown + ticking)
+  if (st.timeLeft !== Infinity && !ended && st.respawnIn <= 0) {
+    const prev = st.timeLeft;
+    st.timeLeft = Math.max(0, st.timeLeft - dt);
+    if (st.timeLeft <= 5 && Math.floor(prev * 2) !== Math.floor(st.timeLeft * 2)) {
+      st.events.push({ type: 'ticktock' });
+    }
+    if (st.timeLeft <= 0) {
+      st.timeUp = true;
+      for (const p of st.players) if (p.alive) killPlayer(st, p, 'time');
+      st.events.push({ type: 'timeup' });
+    }
+  }
 
   if (st.respawnIn > 0) {
     st.respawnIn -= dt;
-    if (st.respawnIn <= 0) respawnAll(st);
+    if (st.respawnIn <= 0 && !st.runOver && !st.timeUp) respawnAll(st);
   }
-  const playing = st.respawnIn <= 0;
+  const playing = st.respawnIn <= 0 && !st.runOver && !st.timeUp;
   for (let i = 0; i < st.players.length; i++) {
     const p = st.players[i];
     const inp = (inputs && inputs[i]) || {};
@@ -220,17 +277,18 @@ function update(st, dt, inputs) {
   updateCrumble(st, dt);
   updateCamera(st, dt);
   updateParticles(st, dt);
-  if (!st.complete) checkLevelBounds(st);
+  if (!ended) checkLevelBounds(st);
 }
 
 /* ---------- player physics ---------- */
 function stepPlayer(st, p, inp, dt) {
   const level = st.level;
   p.inverted = false;
+  let inWind = false;
   for (const z of level.zones) {
-    if (z.kind === 'reverse' &&
-        rectOverlap(p.left, p.top, p.w, p.h, z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE)) {
-      p.inverted = true;
+    if (rectOverlap(p.left, p.top, p.w, p.h, z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE)) {
+      if (z.kind === 'reverse') p.inverted = true;
+      if (z.kind === 'wind') inWind = true;
     }
   }
 
@@ -244,7 +302,10 @@ function stepPlayer(st, p, inp, dt) {
     if (p.vx > MOVE_MAX) p.vx = MOVE_MAX;
     if (p.vx < -MOVE_MAX) p.vx = -MOVE_MAX;
   } else {
-    const f = FRICT_G * dt;
+    // ice = very low friction (the TELL is the frost look)
+    let fr = FRICT_G;
+    if (p.onGround && p.standTile && level.def.map[p.standTile.y][p.standTile.x] === '~') fr = FRICT_G * 0.12;
+    const f = fr * dt;
     if (Math.abs(p.vx) <= f) p.vx = 0;
     else p.vx -= (p.vx > 0 ? 1 : -1) * f;
   }
@@ -252,7 +313,8 @@ function stepPlayer(st, p, inp, dt) {
   // carry by moving platform from last frame
   if (p.onMover) p.x += p.onMover.vx * dt;
 
-  p.vy += GRAV * dt;
+  // updraft wind = floaty gravity
+  p.vy += GRAV * (inWind ? 0.3 : 1) * dt;
   if (p.vy > MAX_FALL) p.vy = MAX_FALL;
   if (p.onGround) p.coyote = COYOTE; else p.coyote -= dt;
   if (p.jumpBuffer > 0 && p.coyote > 0) {
@@ -262,6 +324,13 @@ function stepPlayer(st, p, inp, dt) {
 
   moveX(st, p, dt);
   moveY(st, p, dt);
+
+  // conveyor belt: carries you whether you like it or not (the TELL is the arrows)
+  if (p.onGround && p.standTile) {
+    const ch = level.def.map[p.standTile.y][p.standTile.x];
+    if (ch === '>') { if (p.vx < 260) p.vx = 260; }
+    else if (ch === '<') { if (p.vx > -260) p.vx = -260; }
+  }
 
   checkHazards(st, p);
 
@@ -289,6 +358,8 @@ function moveX(st, p, dt) {
   for (let yy = y0; yy <= y1; yy++) {
     for (let xx = x0; xx <= x1; xx++) {
       if (level.solidAt(xx, yy)) {
+        // one-way door: pass through left → right, blocked the other way
+        if (level.onewayDoors.has(yy * level.w + xx) && p.vx > 0) continue;
         if (p.vx > 0) p.x = xx * TILE - p.w / 2;
         else if (p.vx < 0) p.x = (xx + 1) * TILE + p.w / 2;
         p.vx = 0;
@@ -371,6 +442,18 @@ function checkHazards(st, p) {
     for (let xx = x0; xx <= x1; xx++) {
       if (level.hazardAt(xx, yy)) { killPlayer(st, p, 'spikes'); return; }
     }
+  }
+  if (st.laserOn && level.lasers.size) {
+    for (const i of level.lasers) {
+      const lx = (i % level.w) * TILE, ly = ((i / level.w) | 0) * TILE;
+      if (rectOverlap(p.left + 4, p.top + 4, p.w - 8, p.h - 8, lx, ly, TILE, TILE)) {
+        killPlayer(st, p, 'laser'); return;
+      }
+    }
+  }
+  if (st.boss &&
+      rectOverlap(p.left + 2, p.top + 2, p.w - 4, p.h - 4, st.boss.x, st.boss.y, st.boss.w, st.boss.h)) {
+    killPlayer(st, p, 'boss'); return;
   }
   for (const e of level.entities) {
     if (e.type === 'killerdoor') {
@@ -483,6 +566,11 @@ function killPlayer(st, p, cause) {
     st.events.push({ type: 'bothdie', p });
   }
   st.respawnIn = 0.7;
+  if (st.hardcore) {
+    // 💀 HARDCORE: one life. The run ends NOW.
+    st.runOver = true;
+    st.events.push({ type: 'runover', p, cause });
+  }
 }
 
 function respawnAll(st) {
@@ -526,6 +614,7 @@ function triggerShift(st) {
 /* ---------- crumble / coward floors ---------- */
 function updateCrumble(st, dt) {
   const level = st.level;
+  const mul = st.rageMul || 1; // 😈 rage mode: traps get faster
   for (const entry of level.crumble) {
     const i = entry[0], c = entry[1];
     const x = i % level.w, y = (i / level.w) | 0;
@@ -536,7 +625,7 @@ function updateCrumble(st, dt) {
     } else if (c.state === 'warn') {
       if (standing) {
         c.t += dt;
-        if (c.t > 0.6) {
+        if (c.t > 0.6 * mul) {
           c.state = 'gone';
           level.solids[i] = 0;
           burst(st, x * TILE + 20, y * TILE, '#8d6e63', 12);
@@ -555,7 +644,7 @@ function updateCrumble(st, dt) {
     } else if (c.state === 'warn') {
       if (!standing) {
         c.t += dt;
-        if (c.t > 0.25) {
+        if (c.t > 0.25 * mul) {
           c.state = 'gone';
           level.solids[i] = 0;
           burst(st, x * TILE + 20, y * TILE, '#8d6e63', 12);
@@ -640,6 +729,29 @@ function breakRock(st, rock) {
   burst(st, rock.x, rock.y, '#8d6e63', 10, 120);
   st.shake = Math.max(st.shake, 0.15);
   st.events.push({ type: 'rockbreak' });
+}
+
+/* ---------- 👹 THE DEVIL (boss) — rolls along the arena floor ----------
+   The TELL: he is huge, he is right there, and he ROARS + shakes
+   before every direction change. Hide on platforms or jump over him. */
+function updateBoss(st, dt) {
+  const b = st.boss;
+  b.t += dt;
+  if (b.pause > 0) {
+    b.pause -= dt;
+  } else {
+    b.x += b.vx * b.dir * dt;
+    const maxX = st.level.w * TILE - b.w;
+    if (b.x <= 0) {
+      b.x = 0; b.dir = 1; b.pause = 0.6;
+      st.shake = Math.max(st.shake, 0.5);
+      st.events.push({ type: 'bossroar' });
+    } else if (b.x >= maxX) {
+      b.x = maxX; b.dir = -1; b.pause = 0.6;
+      st.shake = Math.max(st.shake, 0.5);
+      st.events.push({ type: 'bossroar' });
+    }
+  }
 }
 
 /* ---------- camera / particles / bounds ---------- */

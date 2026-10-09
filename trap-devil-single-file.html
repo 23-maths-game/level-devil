@@ -219,6 +219,17 @@ body {
 .trapedia-row.known { background: rgba(183, 28, 28, 0.18); color: #ffcdd2; }
 .trapedia-row.unknown { color: rgba(245, 230, 232, 0.35); }
 
+/* ---------- RAGE EDITION 2.0 ---------- */
+.lvl-btn.hell { border-color: rgba(183, 28, 28, 0.7); color: #ff8a80; }
+.lvl-btn.hell.done { border-color: rgba(255, 45, 85, 0.85); color: #ff5252; }
+.btn-hell {
+  border-color: rgba(183, 28, 28, 0.8);
+  background: linear-gradient(160deg, #4a0d16, #2b0f1a);
+}
+.btn-hell:hover { box-shadow: 0 4px 18px rgba(183, 28, 28, 0.5); }
+#hud-timer.danger { border-color: #ff5252; color: #ff8a80; animation: blink 0.5s infinite; }
+@keyframes blink { 50% { opacity: 0.35; } }
+
 @media (max-width: 700px) {
   .howto-grid { grid-template-columns: 1fr; }
   #hud-controls { display: none; }
@@ -259,7 +270,10 @@ body {
       <div class="btn-col">
         <button class="btn btn-big" id="btn-1p">😤 1 PLAYER</button>
         <button class="btn btn-big" id="btn-2p">👥 2 PLAYERS — shared fate</button>
-        <button class="btn" id="btn-select">🗺 LEVEL SELECT (120)</button>
+        <button class="btn" id="btn-select">🗺 LEVEL SELECT (150)</button>
+        <button class="btn btn-hell" id="btn-endless">♾️ ENDLESS MODE — how deep can you go?</button>
+        <button class="btn btn-hell" id="btn-hardcore">💀 HARDCORE — 1 life, back to level 1</button>
+        <button class="btn" id="btn-rage">😈 RAGE MODE: ON</button>
         <button class="btn" id="btn-howto">❓ HOW TO PLAY</button>
         <button class="btn sound-toggle">🔊 SOUND: ON</button>
       </div>
@@ -445,6 +459,23 @@ const AudioFX = {
   },
 
   jump() { this.tone(440, 0.12, 'square', 0.12, 880); },
+  hum() { this.tone(110, 0.35, 'sawtooth', 0.07, 90); this.tone(165, 0.35, 'square', 0.04, 140); },
+  roar() {
+    this.noise(0.5, 0.25, 300);
+    this.tone(70, 0.5, 'sawtooth', 0.2, 40);
+    this.tone(55, 0.6, 'square', 0.15, 30, 0.1);
+  },
+  rageOn() {
+    this.tone(220, 0.15, 'sawtooth', 0.18, 110, 0);
+    this.tone(180, 0.15, 'sawtooth', 0.18, 90, 0.12);
+    this.tone(140, 0.3, 'sawtooth', 0.2, 60, 0.24);
+    this.noise(0.3, 0.12, 800, 0.05);
+  },
+  timeup() {
+    this.tone(880, 0.12, 'square', 0.15);
+    this.tone(880, 0.12, 'square', 0.15, 0, 0.15);
+    this.tone(440, 0.5, 'sawtooth', 0.18, 220, 0.3);
+  },
   land() { this.noise(0.06, 0.08, 900); },
   click() { this.tone(700, 0.05, 'square', 0.1); },
   tick() { this.tone(1200, 0.03, 'square', 0.06); },
@@ -510,7 +541,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { AudioFX 
 <script>
 /* ============================================================
    TRAP DEVIL: RAGE EDITION — levels.js
-   120 levels: 24 handcrafted + 96 deterministically generated.
+   150 levels: 54 handcrafted + 96 deterministically generated,
+   PLUS ♾️ ENDLESS mode (generateLevelDef(n) works for any n).
    Every level is GUARANTEED beatable — tools/validate-levels.cjs
    proves it with a jump-aware reachability search.
 
@@ -531,6 +563,15 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { AudioFX 
      S  rock spawner (shadow warns you first)
      E  crusher anchor (params in traps[])  M  moving platform anchor
      P  player 1 spawn      Q  player 2 spawn
+
+   ——— RAGE EDITION 2.0 (HELL tier, levels 121-150 + endless) ———
+     B  LASER beam (level-wide ON/OFF cycle; kills only while ON)
+     >  conveyor belt →        <  conveyor belt ←
+     ~  ice floor (you slide, you do NOT stop)
+     &  updraft wind (floaty gravity while inside)
+     @  one-way door (pass left→right, blocked the other way)
+   Level def extras: laserPeriod, timeLimit (s), dark (spotlight),
+   boss (👹 The Devil rolls along the arena floor).
    ============================================================ */
 (function (global) {
 'use strict';
@@ -552,7 +593,9 @@ const TRAP_CHARS = {
   H: 'Spikes', V: 'Spikes', R: 'Reverse Zone', Z: 'Camera Flip', w: 'Layout Shift',
   T: 'Teleport Pad', C: 'Checkpoint', F: 'Fake Checkpoint', Y: 'Fake Finish',
   L: 'Lever', K: 'Wrong Lever', O: 'Door', X: 'Killer Door',
-  S: 'Rock Spawner', E: 'Crusher', M: 'Moving Platform'
+  S: 'Rock Spawner', E: 'Crusher', M: 'Moving Platform',
+  B: 'Laser Beam', '>': 'Conveyor Belt', '<': 'Conveyor Belt', '~': 'Ice Floor',
+  '&': 'Updraft Wind', '@': 'One-Way Door'
 };
 
 function inferTrapList(def) {
@@ -571,6 +614,9 @@ function inferTrapList(def) {
       if (name && out.indexOf(name) === -1) out.push(name);
     }
   }
+  if (def.timeLimit) out.push('Level Timer');
+  if (def.dark) out.push('Darkness');
+  if (def.boss) out.push('The Devil (Boss)');
   return out;
 }
 
@@ -965,6 +1011,594 @@ const HANDCRAFTED = [
   }
 ];
 
+/* ---------- 💀💀 HELL TIER — 30 handcrafted levels (121-150) ----------
+   New mechanics: lasers (B), conveyors (>/<), ice (~), updraft (&),
+   one-way doors (@), level timers, darkness, and a BOSS.
+   Every single one is validator-proven beatable. */
+const HELL_LEVELS = [
+  {
+    name: '💀 Laser Limbo',
+    hint: 'Lasers blink on a cycle. RED = die, dim = run. The blinking IS the tell.',
+    laserPeriod: 1.6,
+    map: [
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..P.....BBBB........BBBB....G.',
+      '##############################',
+      '##############################'
+    ]
+  },
+  {
+    name: '💀 Disco Inferno',
+    hint: 'The ceiling has opinions. The walls blink. Dance.',
+    laserPeriod: 2.2,
+    map: [
+      '..............................',
+      '............E.................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..P....BB..HH..BB.........G...',
+      '##############################',
+      '##############################'
+    ],
+    traps: [{ type: 'crusher', x: 12, y: 1, drop: 280 }]
+  },
+  {
+    name: '💀 Crumble Laser Bridge',
+    hint: 'The floor crumbles AND the air kills. Pick your moment.',
+    laserPeriod: 1.8,
+    map: [
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..P....BBBBBB...........G.....',
+      '#######DDDDDD#################',
+      '##############################'
+    ]
+  },
+  {
+    name: '💀 Slipstream',
+    hint: 'The belt moves. You move with it. The spikes do not care.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P...........................G.',
+      '#####>>>>>>HHHH..........#######',
+      '################################'
+    ]
+  },
+  {
+    name: '💀 Treadmill to Hell',
+    hint: 'This belt goes the WRONG way. Jump it.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P...........................G.',
+      '########<<<<........HH..########',
+      '################################'
+    ]
+  },
+  {
+    name: '💀 Ice Age',
+    hint: 'Ice physics. You slide. You do NOT stop. Plan your jump.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P...........................G.',
+      '#####~~~~~~~HHHH....D...########',
+      '################################'
+    ]
+  },
+  {
+    name: '💀 Updraft Alley',
+    hint: 'The wind lifts. The pits do not forgive. Platform to platform.',
+    map: [
+      '....................................',
+      '....................................',
+      '....................................',
+      '...............&....................',
+      '...............&...........&........',
+      '...............&....................',
+      '.................===................',
+      '............===.......===...........',
+      '..P...............................G.',
+      '#########.................##########',
+      '#########HHHHHHHHHHHHHHHHH##########'
+    ]
+  },
+  {
+    name: '💀 Jet Set',
+    hint: 'Updraft over the spikes. Or take the stones. Your call.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '.............&..................',
+      '.............&..................',
+      '.............&..................',
+      '.............&..................',
+      '.............&..................',
+      '..P.................BBBB......G.',
+      '###########.#..#..##############',
+      '###########H#HH#HH##############'
+    ]
+  },
+  {
+    name: '💀 Storm Front',
+    hint: 'Wind over the pit. Ice on the platform. A crusher with a schedule.',
+    map: [
+      '..................................',
+      '..................................',
+      '.........................E........',
+      '............&.....................',
+      '............&.....................',
+      '............&.....................',
+      '..................................',
+      '...................~~~............',
+      '..P.............................G.',
+      '##########....#....###############',
+      '##########HHHH#HHHH###############',
+      '##################################'
+    ],
+    traps: [{ type: 'crusher', x: 25, y: 2, drop: 240 }]
+  },
+  {
+    name: '💀 Point of No Return',
+    hint: 'The door only opens one way. The floor leaves when you do. Commit.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P..@........................G.',
+      '#####AAAAAA....#################',
+      '###########HHHH#################'
+    ]
+  },
+  {
+    name: '💀 Hotel California',
+    hint: 'You can check in. You can never leave. (Forward only.)',
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..P..@......@.........@.........G.',
+      '#######HHH#####HHHH######HHHH#####',
+      '##################################'
+    ]
+  },
+  {
+    name: '💀 The Bouncer',
+    hint: 'Your keys lie, the door only opens forward, and the belt has opinions.',
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '.......RRRR.......................',
+      '..P.....RRRR.@..................G.',
+      '##################>>>>..##########',
+      '######################HH##########'
+    ]
+  },
+  {
+    name: '💀 Bomb Defusal',
+    hint: 'You have 30 seconds. The level does not care about your feelings.',
+    timeLimit: 30,
+    map: [
+      '................................',
+      '................................',
+      '.........E...........E..........',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P.....HHH.........HHH.......G.',
+      '################################',
+      '################################'
+    ],
+    traps: [
+      { type: 'crusher', x: 9, y: 2, drop: 240 },
+      { type: 'crusher', x: 21, y: 2, drop: 240 }
+    ]
+  },
+  {
+    name: '💀 Speed Dating',
+    hint: 'Run the belt, dodge the lasers, beat the clock. Multitasking.',
+    timeLimit: 25,
+    laserPeriod: 2.0,
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..P......BBBB.......BBBB........G.',
+      '#####>>>>>>##########HHHH#########',
+      '##################################'
+    ]
+  },
+  {
+    name: '💀 Tmato',
+    hint: 'The floor crumbles, the air blinks, the clock ticks. Hurry.',
+    timeLimit: 20,
+    laserPeriod: 1.6,
+    map: [
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..P....BB...........BB......G.',
+      '#######DDDDDD#######DDDDD#####',
+      '##############################'
+    ]
+  },
+  {
+    name: '💀 Lights Out',
+    hint: 'Lights out. The spikes still glow. So do you. (Spotlight.)',
+    dark: true,
+    map: [
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..............................',
+      '..P.....HHH....DDDD.....G.....',
+      '##############################',
+      '##############################'
+    ]
+  },
+  {
+    name: '💀 Hide and Seek',
+    hint: 'In the dark, shadows warn you. Rocks fall. The ceiling drops.',
+    dark: true,
+    map: [
+      '................................',
+      '.........S......................',
+      '....................E...........',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P...........................G.',
+      '################################',
+      '################################',
+      '################################'
+    ],
+    traps: [{ type: 'crusher', x: 20, y: 2, drop: 240 }]
+  },
+  {
+    name: '💀 Dark Web',
+    hint: 'Lasers blink in the dark. Ice does not care about your plans.',
+    dark: true,
+    laserPeriod: 2.0,
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P....BB.....................G.',
+      '##################~~~###########',
+      '################################'
+    ]
+  },
+  {
+    name: '💀 Blind Faith',
+    hint: 'Bump the invisible. Distrust the solid-looking. Jump the rest.',
+    dark: true,
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '...............===..............',
+      '..P..II....fff..........HH...G..',
+      '############........############',
+      '############HHHHHHHH############'
+    ]
+  },
+  {
+    name: '💀 Pitch Black',
+    hint: 'Dark + belt + crumbling bridge + rocks + lasers. Welcome to the deep end.',
+    dark: true,
+    laserPeriod: 2.2,
+    map: [
+      '....................................',
+      '................S...................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '..P.....BB........................G.',
+      '#####>>>>>>AAAAAA....###############',
+      '##################HHHH##############',
+      '####################################'
+    ]
+  },
+  {
+    name: '💀 Combo Meal',
+    hint: 'Belt, gap, crumbling bridge, lasers. A full course.',
+    laserPeriod: 1.8,
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P.........BBBB...............G',
+      '####>>>>....DDDD################',
+      '########HHHH####################'
+    ]
+  },
+  {
+    name: '💀 Death by a Thousand Trolls',
+    hint: 'Rocks, a crusher, lying keys, and a floor that edits itself. Classic.',
+    map: [
+      '..................................',
+      '.........S........................',
+      '..................E...............',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '.....................RR..ww.......',
+      '..P..................RR..ww......G',
+      '##################################',
+      '##################################',
+      '##################################'
+    ],
+    traps: [
+      { type: 'crusher', x: 18, y: 2, drop: 240 },
+      {
+        type: 'shift',
+        add: [{ x: 29, y: 8 }],
+        remove: [{ x: 29, y: 9 }, { x: 30, y: 9 }],
+        spike: [{ x: 29, y: 10 }, { x: 30, y: 10 }]
+      }
+    ]
+  },
+  {
+    name: '💀 The Gauntlet',
+    hint: 'Ice, spikes, lasers, and a stopwatch. The full breakfast.',
+    timeLimit: 35,
+    laserPeriod: 1.8,
+    map: [
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '..P....BB............BB...........G.',
+      '#######~~~~~~~HHHH##################',
+      '####################################'
+    ]
+  },
+  {
+    name: '💀 Troll Olympics',
+    hint: 'A moving platform, an updraft, and a one-way door. The Olympics of trolling.',
+    map: [
+      '......................................',
+      '......................................',
+      '......................................',
+      '......................................',
+      '......................................',
+      '..........M..............&............',
+      '.........................&............',
+      '.........................&............',
+      '..P...................@............G..',
+      '###########.......####################',
+      '###########HHHHHHH####################',
+      '######################################'
+    ],
+    traps: [{ type: 'mover', x: 10, y: 6, x2: 17, y2: 6, speed: 130 }]
+  },
+  {
+    name: '💀 Almost Heaven',
+    hint: 'A fake save, a killer door, a murder lever, a one-way door and a fake finish. Buffet of lies.',
+    map: [
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '..P...F...XX...K....@....Y.....G....',
+      '####################################',
+      '####################################'
+    ]
+  },
+  {
+    name: '💀 Hell\'s Kitchen',
+    hint: 'Belt, crusher, lasers, spikes, stopwatch. The kitchen sink.',
+    timeLimit: 40,
+    laserPeriod: 2.0,
+    map: [
+      '....................................',
+      '....................................',
+      '..............E.....................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '..P..............BBBB............G..',
+      '#####>>>>>>##########HHH############',
+      '####################################',
+      '####################################'
+    ],
+    traps: [{ type: 'crusher', x: 14, y: 2, drop: 240 }]
+  },
+  {
+    name: '💀 The Devil\'s Playground',
+    hint: 'Stones or wind across the pit. The level edits itself. The ceiling drops.',
+    map: [
+      '......................................',
+      '........S.............................',
+      '.....................E................',
+      '......................................',
+      '...........&..........................',
+      '...........&..........................',
+      '...........&..........................',
+      '.........................ww...........',
+      '..P......................ww........G..',
+      '#####............#########..##########',
+      '#####HHHH#HHH#HHH#########HH##########',
+      '######################################',
+      '######################################'
+    ],
+    traps: [
+      { type: 'crusher', x: 21, y: 2, drop: 280 },
+      {
+        type: 'shift',
+        add: [{ x: 26, y: 8 }, { x: 27, y: 8 }],
+        remove: [{ x: 26, y: 9 }, { x: 27, y: 9 }],
+        spike: [{ x: 26, y: 10 }, { x: 27, y: 10 }]
+      }
+    ]
+  },
+  {
+    name: '💀 Unfair Advantage',
+    hint: 'Ice, lasers, a floor that quits, and keys that lie. Unfair? Obviously.',
+    laserPeriod: 2.0,
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '.............RRRR.................',
+      '..P....BB....RRRR...........G.....',
+      '#######~~~~~AAAAA#################',
+      '##################################'
+    ]
+  },
+  {
+    name: '💀 Full Course Meal',
+    hint: 'Everything we have. All at once. No timer, no dark — just pure spite.',
+    laserPeriod: 2.0,
+    map: [
+      '......................................',
+      '...........S..........................',
+      '..................E...................',
+      '......................................',
+      '......................................',
+      '......................................',
+      '......................................',
+      '.......................ww.............',
+      '..P....F....BB...@....Y......HH..G....',
+      '########HHH#################DD########',
+      '######################################',
+      '######################################'
+    ],
+    traps: [
+      { type: 'crusher', x: 18, y: 2, drop: 240 },
+      {
+        type: 'shift',
+        add: [{ x: 20, y: 8 }],
+        remove: [{ x: 20, y: 9 }, { x: 21, y: 9 }],
+        spike: [{ x: 20, y: 10 }, { x: 21, y: 10 }]
+      }
+    ]
+  },
+  {
+    name: '👹 THE DEVIL HIMSELF',
+    hint: '👹 THE DEVIL HIMSELF. He rolls. You hide. The platforms are safe. The floor is not.',
+    boss: true,
+    map: [
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '.....====....====....====....====...',
+      '....................................',
+      '..P................C...............G',
+      '####################################',
+      '####################################'
+    ]
+  }
+];
+
 /* ---------- name generator for levels 25-120 ---------- */
 const NAME_ADJ = ['Soggy', 'Cursed', 'Invisible', 'Crumbling', 'Sarcastic', 'Menacing', 'Judgmental',
   'Haunted', 'Passive-Aggressive', 'Gaslighting', 'Unhinged', 'Suspicious', 'Backstabbing', 'Two-Faced',
@@ -1019,7 +1653,9 @@ function generateLevelDef(n) {
   if (n >= 50) pool.push('E', 'Z', 'F', 'Y', 'K', 'T');
   if (n >= 70) pool.push('X', 'L', 'E', 'Z');
   if (n >= 90) pool.push('M', 'X', 'Z', 'Y');
-  const budget = Math.min(8, 2 + Math.floor((n - 25) / 15));
+  // 💀 HELL tier (endless mode, n ≥ 121): lasers, conveyors, ice, wind, one-way doors
+  if (n >= 121) pool.push('B', '>', '~', '&', '@', 'B', '>', '~', 'B', '&');
+  const budget = Math.min(10, 2 + Math.floor((n - 25) / 12));
   const segIdxs = [];
   for (let s = 1; s < segments.length - 1; s++) segIdxs.push(s);
   for (let i = segIdxs.length - 1; i > 0; i--) {
@@ -1055,9 +1691,12 @@ function generateLevelDef(n) {
 
   function cellsFor(type, tx) {
     switch (type) {
-      case 'D': case 'A': case 'f': return [[tx, fy, 'floor']];
-      case 'H': case 'I': case 'T': case 'F': case 'K': case 'Y': return [[tx, py, 'air']];
+      case 'D': case 'A': case 'f': case '~': return [[tx, fy, 'floor']];
+      case 'H': case 'I': case 'T': case 'F': case 'K': case 'Y': case '@': return [[tx, py, 'air']];
       case 'R': case 'Z': case 'X': return [[tx, py, 'air'], [tx, py - 1, 'air']];
+      case 'B': return [[tx, py, 'air'], [tx + 1, py, 'air'], [tx + 2, py, 'air']];
+      case '>': return [[tx, fy, 'floor'], [tx + 1, fy, 'floor']];
+      case '&': return [[tx, py, 'air'], [tx, py - 1, 'air'], [tx, py - 2, 'air']];
       case 'S': return [[tx, 1, 'air']];
       case 'E': return [[tx, 2, 'air']];
       default: return null;
@@ -1116,6 +1755,12 @@ function generateLevelDef(n) {
         traps.push({ type: 'crusher', x: tx, y: 2, drop: (fy - 3) * 40 });
         return true;
       case 'X': grid[py][tx] = 'X'; grid[py - 1][tx] = 'X'; return true;
+      // 💀 hell-tier traps
+      case 'B': grid[py][tx] = 'B'; grid[py][tx + 1] = 'B'; grid[py][tx + 2] = 'B'; return true;
+      case '>': grid[fy][tx] = '>'; grid[fy][tx + 1] = '>'; return true;
+      case '~': grid[fy][tx] = '~'; return true;
+      case '&': grid[py][tx] = '&'; grid[py - 1][tx] = '&'; grid[py - 2][tx] = '&'; return true;
+      case '@': grid[py][tx] = '@'; return true;
       default: return false;
     }
   }
@@ -1125,6 +1770,12 @@ function generateLevelDef(n) {
     map: grid.map(r => r.join('')),
     traps
   };
+  // 💀 hell-tier level modifiers (endless mode)
+  if (n >= 121) {
+    def.laserPeriod = 1.6 + (n % 3) * 0.3;
+    if (n >= 130) def.timeLimit = 40 + (n % 25);
+    if (n >= 140 && n % 3 === 0) def.dark = true;
+  }
   const list = inferTrapList(def);
   def.hint = list.length
     ? 'This level contains: ' + list.join(', ') + '. Every trap has a tell — find it before it finds you.'
@@ -1134,18 +1785,20 @@ function generateLevelDef(n) {
   function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
 }
 
-/* ---------- assemble all 120 levels ---------- */
-const LEVEL_DEFS = HANDCRAFTED.slice();
-for (let n = 25; n <= 120; n++) LEVEL_DEFS.push(generateLevelDef(n));
+/* ---------- assemble all 150 levels ---------- */
+const LEVEL_DEFS = HANDCRAFTED.slice();          // levels 1-24
+for (let n = 25; n <= 120; n++) LEVEL_DEFS.push(generateLevelDef(n)); // levels 25-120
+for (const h of HELL_LEVELS) LEVEL_DEFS.push(h); // levels 121-150 (💀 HELL tier)
 
-const TOTAL_LEVELS = LEVEL_DEFS.length; // 120
+const TOTAL_LEVELS = LEVEL_DEFS.length; // 150
 
 global.LEVEL_DEFS = LEVEL_DEFS;
 global.mulberry32 = mulberry32;
 global.inferTrapList = inferTrapList;
+global.generateLevelDef = generateLevelDef; // ♾️ endless mode uses this for n > 150
 global.TOTAL_LEVELS = TOTAL_LEVELS;
 
-const api = { LEVEL_DEFS, HANDCRAFTED, generateLevelDef, mulberry32, inferTrapList, TRAP_CHARS, TOTAL_LEVELS };
+const api = { LEVEL_DEFS, HANDCRAFTED, HELL_LEVELS, generateLevelDef, mulberry32, inferTrapList, TRAP_CHARS, TOTAL_LEVELS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -1190,6 +1843,10 @@ function parseLevel(def, index) {
   const coward = new Map();   // idx -> {state, t}
   const fakePlats = new Set();
   const invis = new Map();    // idx -> {t}
+  const lasers = new Set();        // idx — laser tiles (hazard only while ON)
+  const conveyors = new Map();     // idx -> +1 (right) / -1 (left)
+  const ice = new Set();           // idx — slippery floor tiles
+  const onewayDoors = new Set();   // idx — solid, passable left→right only
   let spawn = null, spawn2 = null, goal = null;
 
   for (let y = 0; y < h; y++) {
@@ -1218,6 +1875,11 @@ function parseLevel(def, index) {
         case 'O': entities.push({ type: 'door', x, y, open: false, openT: 0 }); solids[i] = 1; break;
         case 'X': entities.push({ type: 'killerdoor', x, y }); break;
         case 'S': entities.push({ type: 'spawner', x, y, timer: 2, warn: 0, floorY: 0 }); break;
+        case 'B': lasers.add(i); break;                       // laser beam (toggles)
+        case '>': case '<': solids[i] = 1; conveyors.set(i, c === '>' ? 1 : -1); break;
+        case '~': solids[i] = 1; ice.add(i); break;           // ice floor (slippery)
+        case '@': solids[i] = 1; onewayDoors.add(i); break;   // one-way door →
+        case '&': zones.push({ kind: 'wind', x, y, w: 1, h: 1 }); break; // updraft
         case 'E': case 'M': break; // linked via def.traps below
         case 'P': spawn = { x, y }; break;
         case 'Q': spawn2 = { x, y }; break;
@@ -1248,6 +1910,7 @@ function parseLevel(def, index) {
     index, name: def.name, hint: def.hint,
     w, h, solids, hazards, oneway, zones, entities,
     crumble, coward, fakePlats, invis,
+    lasers, conveyors, ice, onewayDoors,
     spawn, spawn2, goal, shift, shiftDone: false, def,
     solidAt(x, y) { return x >= 0 && y >= 0 && x < w && y < h && solids[y * w + x] === 1; },
     hazardAt(x, y) { return x >= 0 && y >= 0 && x < w && y < h && hazards[y * w + x] === 1; },
@@ -1306,7 +1969,8 @@ class Player {
 }
 
 /* ---------- state ---------- */
-function createState(def, index, mode) {
+function createState(def, index, mode, opts) {
+  opts = opts || {};
   const level = parseLevel(def, index);
   const st = {
     level, mode, index,
@@ -1326,8 +1990,28 @@ function createState(def, index, mode) {
     checkpoint: null,
     checkpointTile: null,
     firstDeathDone: false,
-    _goalWarned: -10
+    _goalWarned: -10,
+    // RAGE EDITION 2.0
+    rageMul: opts.rageMul || 1,     // <1 = traps get FASTER (rage mode)
+    hardcore: !!opts.hardcore,     // 1 life — first death ends the run
+    runOver: false,
+    timeUp: false,
+    laserOn: false,
+    laserT: 0,
+    laserPeriod: def.laserPeriod || 1.6,
+    timeLeft: def.timeLimit || Infinity,
+    dark: !!def.dark,
+    boss: null
   };
+  if (level.lasers.size) st.laserT = st.laserPeriod / 2; // grace period, starts OFF
+  if (def.boss) {
+    const bw = 3 * TILE, bh = 2 * TILE;
+    const floorRow = level.h - 2; // arena floor (bedrock is the last row)
+    st.boss = {
+      x: level.w * TILE - bw - 2 * TILE, y: floorRow * TILE - bh,
+      w: bw, h: bh, vx: 150, dir: -1, pause: 0, t: 0
+    };
+  }
   const p1 = new Player(level.spawn.x * TILE + TILE / 2, (level.spawn.y + 1) * TILE, '#4dd0e1', 'P1');
   st.players.push(p1);
   if (mode === 2) {
@@ -1351,18 +2035,44 @@ function createState(def, index, mode) {
 
 /* ---------- main update ---------- */
 function update(st, dt, inputs) {
-  if (!st.complete) st.time += dt;
+  const ended = st.complete || st.runOver || st.timeUp;
+  if (!ended) st.time += dt;
   if (st.cameraFlip > 0) st.cameraFlip -= dt;
   if (st.shake > 0) st.shake = Math.max(0, st.shake - dt * 3);
   if (st.goalFlash > 0) st.goalFlash -= dt;
 
   updateEntities(st, dt);
+  if (st.boss) updateBoss(st, dt);
+
+  // laser toggle (level-wide phase; rage mode shortens the cycle)
+  if (st.level.lasers.size && !ended) {
+    st.laserT -= dt;
+    if (st.laserT <= 0) {
+      st.laserOn = !st.laserOn;
+      st.laserT = (st.laserPeriod / 2) * (st.rageMul || 1);
+      st.events.push({ type: 'laser', on: st.laserOn });
+    }
+  }
+
+  // level timer (the TELL is the HUD countdown + ticking)
+  if (st.timeLeft !== Infinity && !ended && st.respawnIn <= 0) {
+    const prev = st.timeLeft;
+    st.timeLeft = Math.max(0, st.timeLeft - dt);
+    if (st.timeLeft <= 5 && Math.floor(prev * 2) !== Math.floor(st.timeLeft * 2)) {
+      st.events.push({ type: 'ticktock' });
+    }
+    if (st.timeLeft <= 0) {
+      st.timeUp = true;
+      for (const p of st.players) if (p.alive) killPlayer(st, p, 'time');
+      st.events.push({ type: 'timeup' });
+    }
+  }
 
   if (st.respawnIn > 0) {
     st.respawnIn -= dt;
-    if (st.respawnIn <= 0) respawnAll(st);
+    if (st.respawnIn <= 0 && !st.runOver && !st.timeUp) respawnAll(st);
   }
-  const playing = st.respawnIn <= 0;
+  const playing = st.respawnIn <= 0 && !st.runOver && !st.timeUp;
   for (let i = 0; i < st.players.length; i++) {
     const p = st.players[i];
     const inp = (inputs && inputs[i]) || {};
@@ -1373,17 +2083,18 @@ function update(st, dt, inputs) {
   updateCrumble(st, dt);
   updateCamera(st, dt);
   updateParticles(st, dt);
-  if (!st.complete) checkLevelBounds(st);
+  if (!ended) checkLevelBounds(st);
 }
 
 /* ---------- player physics ---------- */
 function stepPlayer(st, p, inp, dt) {
   const level = st.level;
   p.inverted = false;
+  let inWind = false;
   for (const z of level.zones) {
-    if (z.kind === 'reverse' &&
-        rectOverlap(p.left, p.top, p.w, p.h, z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE)) {
-      p.inverted = true;
+    if (rectOverlap(p.left, p.top, p.w, p.h, z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE)) {
+      if (z.kind === 'reverse') p.inverted = true;
+      if (z.kind === 'wind') inWind = true;
     }
   }
 
@@ -1397,7 +2108,10 @@ function stepPlayer(st, p, inp, dt) {
     if (p.vx > MOVE_MAX) p.vx = MOVE_MAX;
     if (p.vx < -MOVE_MAX) p.vx = -MOVE_MAX;
   } else {
-    const f = FRICT_G * dt;
+    // ice = very low friction (the TELL is the frost look)
+    let fr = FRICT_G;
+    if (p.onGround && p.standTile && level.def.map[p.standTile.y][p.standTile.x] === '~') fr = FRICT_G * 0.12;
+    const f = fr * dt;
     if (Math.abs(p.vx) <= f) p.vx = 0;
     else p.vx -= (p.vx > 0 ? 1 : -1) * f;
   }
@@ -1405,7 +2119,8 @@ function stepPlayer(st, p, inp, dt) {
   // carry by moving platform from last frame
   if (p.onMover) p.x += p.onMover.vx * dt;
 
-  p.vy += GRAV * dt;
+  // updraft wind = floaty gravity
+  p.vy += GRAV * (inWind ? 0.3 : 1) * dt;
   if (p.vy > MAX_FALL) p.vy = MAX_FALL;
   if (p.onGround) p.coyote = COYOTE; else p.coyote -= dt;
   if (p.jumpBuffer > 0 && p.coyote > 0) {
@@ -1415,6 +2130,13 @@ function stepPlayer(st, p, inp, dt) {
 
   moveX(st, p, dt);
   moveY(st, p, dt);
+
+  // conveyor belt: carries you whether you like it or not (the TELL is the arrows)
+  if (p.onGround && p.standTile) {
+    const ch = level.def.map[p.standTile.y][p.standTile.x];
+    if (ch === '>') { if (p.vx < 260) p.vx = 260; }
+    else if (ch === '<') { if (p.vx > -260) p.vx = -260; }
+  }
 
   checkHazards(st, p);
 
@@ -1442,6 +2164,8 @@ function moveX(st, p, dt) {
   for (let yy = y0; yy <= y1; yy++) {
     for (let xx = x0; xx <= x1; xx++) {
       if (level.solidAt(xx, yy)) {
+        // one-way door: pass through left → right, blocked the other way
+        if (level.onewayDoors.has(yy * level.w + xx) && p.vx > 0) continue;
         if (p.vx > 0) p.x = xx * TILE - p.w / 2;
         else if (p.vx < 0) p.x = (xx + 1) * TILE + p.w / 2;
         p.vx = 0;
@@ -1524,6 +2248,18 @@ function checkHazards(st, p) {
     for (let xx = x0; xx <= x1; xx++) {
       if (level.hazardAt(xx, yy)) { killPlayer(st, p, 'spikes'); return; }
     }
+  }
+  if (st.laserOn && level.lasers.size) {
+    for (const i of level.lasers) {
+      const lx = (i % level.w) * TILE, ly = ((i / level.w) | 0) * TILE;
+      if (rectOverlap(p.left + 4, p.top + 4, p.w - 8, p.h - 8, lx, ly, TILE, TILE)) {
+        killPlayer(st, p, 'laser'); return;
+      }
+    }
+  }
+  if (st.boss &&
+      rectOverlap(p.left + 2, p.top + 2, p.w - 4, p.h - 4, st.boss.x, st.boss.y, st.boss.w, st.boss.h)) {
+    killPlayer(st, p, 'boss'); return;
   }
   for (const e of level.entities) {
     if (e.type === 'killerdoor') {
@@ -1636,6 +2372,11 @@ function killPlayer(st, p, cause) {
     st.events.push({ type: 'bothdie', p });
   }
   st.respawnIn = 0.7;
+  if (st.hardcore) {
+    // 💀 HARDCORE: one life. The run ends NOW.
+    st.runOver = true;
+    st.events.push({ type: 'runover', p, cause });
+  }
 }
 
 function respawnAll(st) {
@@ -1679,6 +2420,7 @@ function triggerShift(st) {
 /* ---------- crumble / coward floors ---------- */
 function updateCrumble(st, dt) {
   const level = st.level;
+  const mul = st.rageMul || 1; // 😈 rage mode: traps get faster
   for (const entry of level.crumble) {
     const i = entry[0], c = entry[1];
     const x = i % level.w, y = (i / level.w) | 0;
@@ -1689,7 +2431,7 @@ function updateCrumble(st, dt) {
     } else if (c.state === 'warn') {
       if (standing) {
         c.t += dt;
-        if (c.t > 0.6) {
+        if (c.t > 0.6 * mul) {
           c.state = 'gone';
           level.solids[i] = 0;
           burst(st, x * TILE + 20, y * TILE, '#8d6e63', 12);
@@ -1708,7 +2450,7 @@ function updateCrumble(st, dt) {
     } else if (c.state === 'warn') {
       if (!standing) {
         c.t += dt;
-        if (c.t > 0.25) {
+        if (c.t > 0.25 * mul) {
           c.state = 'gone';
           level.solids[i] = 0;
           burst(st, x * TILE + 20, y * TILE, '#8d6e63', 12);
@@ -1795,6 +2537,29 @@ function breakRock(st, rock) {
   st.events.push({ type: 'rockbreak' });
 }
 
+/* ---------- 👹 THE DEVIL (boss) — rolls along the arena floor ----------
+   The TELL: he is huge, he is right there, and he ROARS + shakes
+   before every direction change. Hide on platforms or jump over him. */
+function updateBoss(st, dt) {
+  const b = st.boss;
+  b.t += dt;
+  if (b.pause > 0) {
+    b.pause -= dt;
+  } else {
+    b.x += b.vx * b.dir * dt;
+    const maxX = st.level.w * TILE - b.w;
+    if (b.x <= 0) {
+      b.x = 0; b.dir = 1; b.pause = 0.6;
+      st.shake = Math.max(st.shake, 0.5);
+      st.events.push({ type: 'bossroar' });
+    } else if (b.x >= maxX) {
+      b.x = maxX; b.dir = -1; b.pause = 0.6;
+      st.shake = Math.max(st.shake, 0.5);
+      st.events.push({ type: 'bossroar' });
+    }
+  }
+}
+
 /* ---------- camera / particles / bounds ---------- */
 function updateCamera(st, dt) {
   const alive = st.players.filter(p => p.alive);
@@ -1860,7 +2625,7 @@ const { TILE, createState, update, burst, rectOverlap } = window.TD;
 const LEVELS = window.LEVEL_DEFS;
 const AudioFX = window.AudioFX;
 const mulberry32 = window.mulberry32;
-const TOTAL = LEVELS.length; // 120
+const TOTAL = LEVELS.length; // 150 (121-150 = 💀 HELL tier; endless generates beyond)
 
 /* ---------- the rage curve (from the design doc) ---------- */
 const RAGE_CURVE = [
@@ -1869,7 +2634,9 @@ const RAGE_CURVE = [
   { upto: 60, emoji: '😡', label: 'Bhai ye unfair hai!' },
   { upto: 80, emoji: '🤬', label: 'MAIN GAME DELETE KAR RAHA HOON' },
   { upto: 100, emoji: '💀', label: 'Bas ek aur try…' },
-  { upto: Infinity, emoji: '☠️', label: 'Welcome to Hell' }
+  { upto: 120, emoji: '☠️', label: 'Welcome to Hell' },
+  { upto: 150, emoji: '☠️💀', label: 'HELL MODE — you asked for this' },
+  { upto: Infinity, emoji: '☠️💀♾️', label: 'ENDLESS HELL' }
 ];
 function rageTag(i) { // i is 0-based
   const n = i + 1;
@@ -1897,6 +2664,7 @@ const hud = document.getElementById('hud');
 const hudLevel = document.getElementById('hud-level');
 const hudDeaths = document.getElementById('hud-deaths');
 const hudTime = document.getElementById('hud-time');
+const hudTimer = document.getElementById('hud-timer');
 const hudMode = document.getElementById('hud-mode');
 const hudStatus = document.getElementById('hud-status');
 const hudHint = document.getElementById('hud-hint');
@@ -1904,21 +2672,27 @@ const rageFill = document.getElementById('rage-fill');
 const rageLabel = document.getElementById('rage-label');
 const elToast = document.getElementById('toast');
 const screens = {};
-for (const id of ['menu', 'select', 'pause', 'fakepause', 'complete', 'win', 'howto']) {
+for (const id of ['menu', 'select', 'pause', 'fakepause', 'complete', 'win', 'howto', 'runover']) {
   screens[id] = document.getElementById('screen-' + id);
 }
 const levelGrid = document.getElementById('level-grid');
 const soundBtns = document.querySelectorAll('.sound-toggle');
 
 /* ---------- persistent save ---------- */
-const SAVE_KEY = 'trapdevil_rage_v1';
+const SAVE_KEY = 'trapdevil_rage_v2';
 function freshSave() {
-  return { unlocked: 1, deaths: {}, best: {}, completed: {}, totalDeaths: 0, totalTime: 0, levelsCompleted: 0, muted: false, traps: [] };
+  return { unlocked: 1, deaths: {}, best: {}, completed: {}, totalDeaths: 0, totalTime: 0, levelsCompleted: 0, muted: false, traps: [],
+    rageMode: true, bestEndless: 0, bestHardcore: 0, hardcoreBestTime: null, medalRank: 0 };
 }
 let save = freshSave();
 try {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (raw) save = Object.assign(freshSave(), JSON.parse(raw));
+  let raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) {
+    const old = localStorage.getItem('trapdevil_rage_v1'); // migrate v1 saves
+    if (old) { save = Object.assign(freshSave(), JSON.parse(old)); persist(); }
+  } else {
+    save = Object.assign(freshSave(), JSON.parse(raw));
+  }
 } catch (e) { /* corrupt save = fresh start, like the game intends */ }
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ } }
 AudioFX.enabled = !save.muted;
@@ -1926,7 +2700,16 @@ AudioFX.enabled = !save.muted;
 /* ---------- runtime state ---------- */
 let st = null;
 let mode = 1;
+let runMode = 'story'; // 'story' | 'endless' | 'hardcore'
+let runStart = 0;
 let currentLevel = 0;
+const genCache = new Map();
+function getDef(levelIndex) { // 0-based; beyond 150 → generated (♾️ endless)
+  if (levelIndex < LEVELS.length) return LEVELS[levelIndex];
+  const n = levelIndex + 1;
+  if (!genCache.has(n)) genCache.set(n, window.generateLevelDef(n));
+  return genCache.get(n);
+}
 let screen = 'menu';
 let keys = {};
 let prevJump = [false, false];
@@ -2015,10 +2798,12 @@ function showScreen(name) {
 }
 function hideAllScreens() { for (const k in screens) screens[k].classList.add('hidden'); }
 
-function startLevel(i, m) {
+function startLevel(i, m, rm) {
   mode = m || 1;
+  runMode = rm || 'story';
   currentLevel = i;
-  st = createState(LEVELS[i], i, mode);
+  if ((runMode === 'hardcore' && i === 0) || (runMode === 'endless' && i === 150)) runStart = performance.now();
+  st = createState(getDef(i), i, mode, { hardcore: runMode === 'hardcore' });
   st.vw = canvas.clientWidth; st.vh = canvas.clientHeight;
   hudHint.classList.remove('show');
   starCache = null;
@@ -2056,7 +2841,7 @@ function buildLevelGrid() {
   levelGrid.innerHTML = '';
   for (let i = 0; i < TOTAL; i++) {
     const b = document.createElement('button');
-    b.className = 'lvl-btn';
+    b.className = 'lvl-btn' + (i >= 120 ? ' hell' : '');
     b.textContent = (i + 1);
     b.title = LEVELS[i].name + '\n' + rageTag(i);
     if (i >= save.unlocked) {
@@ -2068,9 +2853,9 @@ function buildLevelGrid() {
       b.textContent = '😈';
       const d = save.deaths[i] || 0;
       if (d > 0) { const s = document.createElement('span'); s.className = 'lvl-deaths'; s.textContent = d; b.appendChild(s); }
-      b.onclick = () => startLevel(i, mode);
+      b.onclick = () => startLevel(i, mode, 'story');
     } else {
-      b.onclick = () => startLevel(i, mode);
+      b.onclick = () => startLevel(i, mode, 'story');
     }
     levelGrid.appendChild(b);
   }
@@ -2107,7 +2892,8 @@ function buildTrapedia() {
   const known = save.traps;
   const all = ['Spikes', 'Crumbling Floor', 'Coward Floor', 'Fake Platform', 'Invisible Wall', 'Reverse Zone',
     'Camera Flip', 'Layout Shift', 'Teleport Pad', 'Checkpoint', 'Fake Checkpoint', 'Fake Finish',
-    'Lever', 'Wrong Lever', 'Door', 'Killer Door', 'Rock Spawner', 'Crusher', 'Moving Platform'];
+    'Lever', 'Wrong Lever', 'Door', 'Killer Door', 'Rock Spawner', 'Crusher', 'Moving Platform',
+    'Laser Beam', 'Conveyor Belt', 'Ice Floor', 'Updraft Wind', 'One-Way Door', 'Level Timer', 'Darkness', 'The Devil (Boss)'];
   el.innerHTML = all.map(t => {
     const knownTrap = known.indexOf(t) !== -1;
     return '<div class="trapedia-row ' + (knownTrap ? 'known' : 'unknown') + '">' +
@@ -2127,6 +2913,17 @@ function updateSoundBtns() {
   soundBtns.forEach(b => { b.textContent = AudioFX.enabled ? '🔊 SOUND: ON' : '🔇 SOUND: OFF'; });
 }
 updateSoundBtns();
+function toggleRageMode() {
+  save.rageMode = !save.rageMode;
+  persist();
+  updateRageBtn();
+  toast(save.rageMode ? '😈 RAGE MODE: ON — die 8 times in a level and the traps get ANGRY' : '😈 RAGE MODE: OFF — showing mercy', 'info');
+}
+function updateRageBtn() {
+  const b = document.getElementById('btn-rage');
+  if (b) b.textContent = (save.rageMode ? '😈 RAGE MODE: ON' : '😈 RAGE MODE: OFF') + (save.bestEndless ? ' · best ♾️ ' + save.bestEndless : '');
+}
+updateRageBtn();
 
 /* ---------- main loop ---------- */
 function frame(now) {
@@ -2212,6 +3009,21 @@ function drainEvents() {
         toast('👥 Both players on the flag. BOTH. Of. You.', 'info');
         break;
       case 'win': AudioFX.win(); break;
+      case 'laser': if (ev.on) AudioFX.hum(); break;
+      case 'ticktock': AudioFX.tick(); break;
+      case 'timeup':
+        AudioFX.timeup();
+        showRunOver("⏱️ TIME'S UP", 'Level ' + (currentLevel + 1) + ' — ' + st.level.name + '<br>The clock ran out. The level wins this round.');
+        break;
+      case 'bossroar':
+        AudioFX.roar();
+        toast('👹 THE DEVIL ROARS. Run.', 'troll');
+        break;
+      case 'ragemode':
+        AudioFX.rageOn();
+        toast('😈 RAGE MODE ACTIVATED — the level hates you MORE now.', 'troll');
+        break;
+      case 'runover': onRunOver(); break;
       case 'jump': AudioFX.jump(); break;
       case 'land': AudioFX.land(); break;
       case 'crumble': AudioFX.noise(0.15, 0.1, 800); break;
@@ -2228,16 +3040,44 @@ function fmtTime(s) {
   return m + ':' + (ss < 10 ? '0' : '') + ss;
 }
 function updateHUD() {
-  hudLevel.textContent = rageTag(currentLevel) + '  ·  Lvl ' + (currentLevel + 1) + '/' + TOTAL + ' — ' + st.level.name;
+  const n = currentLevel + 1;
+  if (runMode === 'endless') {
+    hudLevel.textContent = '♾️ ENDLESS · Hell Lvl ' + (n - 150) + ' — ' + st.level.name;
+  } else {
+    hudLevel.textContent = rageTag(currentLevel) + '  ·  Lvl ' + n + '/' + TOTAL + ' — ' + st.level.name;
+  }
   hudDeaths.textContent = '💀 ' + st.deaths;
   hudTime.textContent = '⏱ ' + fmtTime(st.time);
-  hudMode.textContent = st.mode === 2 ? '👥 2P · SHARED FATE' : '😤 1P';
+  // level timer (the TELL is the countdown + ticking)
+  if (st.level.def.timeLimit) {
+    const tl = Math.max(0, st.timeLeft);
+    hudTimer.textContent = '⏰ ' + fmtTime(tl);
+    hudTimer.classList.toggle('danger', tl <= 5);
+    hudTimer.classList.remove('hidden');
+  } else {
+    hudTimer.classList.add('hidden');
+  }
+  if (runMode === 'hardcore') {
+    hudMode.textContent = '💀 HARDCORE · 1 LIFE · ⏱ ' + fmtTime((performance.now() - runStart) / 1000);
+  } else if (runMode === 'endless') {
+    hudMode.textContent = '♾️ ENDLESS · streak ' + (n - 150);
+  } else {
+    hudMode.textContent = st.mode === 2 ? '👥 2P · SHARED FATE' : '😤 1P';
+  }
+  // rage meter + RAGE MODE (traps get faster)
   const rage = Math.min(1, st.deaths / 8);
   rageFill.style.width = (rage * 100) + '%';
-  rageLabel.textContent = rage >= 1 ? 'RAGE MODE 😤' : (rage > 0.5 ? 'tilting…' : '');
+  let rageMul = 1;
+  if (save.rageMode && rage >= 1 && !st.complete && !st.runOver && !st.timeUp) {
+    rageMul = 0.55;
+    if (!st._rageAnnounced) { st._rageAnnounced = true; st.events.push({ type: 'ragemode' }); }
+  }
+  st.rageMul = rageMul;
+  rageLabel.textContent = rageMul < 1 ? '😈 RAGE MODE — traps are ANGRY' : (rage >= 1 ? 'RAGE MODE 😤' : (rage > 0.5 ? 'tilting…' : ''));
   let status = '';
   if (st.cameraFlip > 0) status += '📷 ';
   if (st.players.some(p => p.inverted)) status += '⇄ ';
+  if (st.laserOn) status += '🔴 ';
   hudStatus.textContent = status;
 }
 
@@ -2252,12 +3092,27 @@ function onLevelComplete() {
   save.completed[currentLevel] = t;
   save.levelsCompleted = (save.levelsCompleted || 0) + 1;
   save.totalTime = (save.totalTime || 0) + t;
-  if (currentLevel + 2 > save.unlocked && currentLevel + 1 < TOTAL) save.unlocked = currentLevel + 2;
+  if (runMode !== 'endless' && currentLevel + 2 > save.unlocked && currentLevel + 1 < TOTAL) save.unlocked = currentLevel + 2;
+  if (runMode === 'endless') save.bestEndless = Math.max(save.bestEndless || 0, currentLevel + 1 - 150);
+  if (runMode === 'hardcore') save.bestHardcore = Math.max(save.bestHardcore || 0, currentLevel + 1);
   persist();
+  if (runMode === 'endless') {
+    document.getElementById('complete-title').textContent = 'HELL SURVIVED 😈';
+    document.getElementById('complete-stats').innerHTML =
+      '<b>' + st.level.name + '</b><br>' +
+      'Hell level: 💀 ' + (currentLevel + 1 - 150) + '<br>' +
+      'Deaths this level: 💀 ' + deaths + '<br>' +
+      'Time: ⏱ ' + fmtTime(t) + (isBest ? '  (new best! 🏆)' : '  (best: ' + fmtTime(prevBest) + ')') + '<br>' +
+      'Best streak: ♾️ ' + save.bestEndless;
+    document.getElementById('btn-next').textContent = '▶ Next circle of hell';
+    showScreen('complete');
+    return;
+  }
   if (currentLevel === TOTAL - 1) {
     showWinScreen();
     return;
   }
+  document.getElementById('btn-next').textContent = '▶ Next level';
   document.getElementById('complete-title').textContent = 'LEVEL COMPLETE 😈';
   document.getElementById('complete-stats').innerHTML =
     '<b>' + st.level.name + '</b><br>' +
@@ -2266,31 +3121,78 @@ function onLevelComplete() {
   showScreen('complete');
 }
 function showWinScreen() {
+  let medalHtml = '';
+  if (runMode === 'hardcore') {
+    const secs = (performance.now() - runStart) / 1000;
+    const rank = secs < 600 ? 3 : secs < 1080 ? 2 : secs < 1800 ? 1 : 0;
+    if (save.hardcoreBestTime === null || secs < save.hardcoreBestTime) save.hardcoreBestTime = secs;
+    save.medalRank = Math.max(save.medalRank || 0, rank);
+    persist();
+    medalHtml = '<br>💀 Hardcore clear time: ⏱ ' + fmtTime(secs) + ' — ' +
+      ['🎖️ FINISHER', '🥉 BRONZE', '🥈 SILVER', '🥇 GOLD'][rank];
+  }
   document.getElementById('win-stats').innerHTML =
-    'Levels survived: 😈 ' + TOTAL + '<br>' +
+    'Levels survived: 😈 ' + (runMode === 'endless' ? '♾️ ' + (currentLevel + 1 - 150) : TOTAL) + '<br>' +
     'Total deaths: 💀 ' + save.totalDeaths + '<br>' +
     'Total time: ⏱ ' + fmtTime(save.totalTime) + '<br>' +
+    medalHtml +
     'You are now legally allowed to uninstall. 😈';
   showScreen('win');
 }
 
+/* ---------- run over (hardcore / endless / time up) ---------- */
+function showRunOver(title, msg) {
+  if (screen !== 'play') return;
+  document.getElementById('runover-title').textContent = title;
+  document.getElementById('runover-stats').innerHTML = msg;
+  showScreen('runover');
+}
+function onRunOver() {
+  const reached = currentLevel + 1;
+  if (runMode === 'hardcore') {
+    save.bestHardcore = Math.max(save.bestHardcore || 0, reached);
+    persist();
+    showRunOver('💀 HARDCORE RUN ENDED',
+      'You died on <b>Level ' + reached + '</b> — ' + st.level.name + '<br>' +
+      'Best hardcore run: 💀 level ' + save.bestHardcore + '<br>' +
+      'The Devil wins this round. 😈');
+  } else if (runMode === 'endless') {
+    const streak = reached - 150;
+    save.bestEndless = Math.max(save.bestEndless || 0, streak);
+    persist();
+    showRunOver('♾️ RUN OVER',
+      'You survived <b>' + streak + '</b> hell level' + (streak === 1 ? '' : 's') + '<br>' +
+      'Last level: ' + reached + ' — ' + st.level.name + '<br>' +
+      'Best streak: ♾️ ' + save.bestEndless);
+  }
+}
+
 /* ---------- menu wiring ---------- */
-document.getElementById('btn-1p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 1); };
-document.getElementById('btn-2p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 2); };
+document.getElementById('btn-1p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 1, 'story'); };
+document.getElementById('btn-2p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 2, 'story'); };
+document.getElementById('btn-endless').onclick = () => { AudioFX.init(); startLevel(150, 1, 'endless'); };
+document.getElementById('btn-hardcore').onclick = () => { AudioFX.init(); startLevel(0, 1, 'hardcore'); };
+document.getElementById('btn-rage').onclick = toggleRageMode;
 document.getElementById('btn-select').onclick = () => { buildLevelGrid(); showScreen('select'); };
 document.getElementById('btn-howto').onclick = () => showScreen('howto');
 document.getElementById('btn-menu-from-select').onclick = () => showScreen('menu');
 document.getElementById('btn-menu-from-howto').onclick = () => showScreen('menu');
 document.getElementById('btn-resume').onclick = () => resumeGame();
-document.getElementById('btn-restart').onclick = () => startLevel(currentLevel, mode);
+document.getElementById('btn-restart').onclick = () => startLevel(currentLevel, mode, runMode);
 document.getElementById('btn-quit').onclick = () => quitToMenu();
 document.getElementById('btn-fake-resume').onclick = () => closeFakePause(true);
 document.getElementById('btn-fake-quit').onclick = () => { quitToMenu(); toast('😂 Quitter. (It worked, though.)', 'troll'); };
-document.getElementById('btn-next').onclick = () => startLevel(currentLevel + 1, mode);
-document.getElementById('btn-retry').onclick = () => startLevel(currentLevel, mode);
+document.getElementById('btn-next').onclick = () => startLevel(currentLevel + 1, mode, runMode);
+document.getElementById('btn-retry').onclick = () => startLevel(currentLevel, mode, runMode);
 document.getElementById('btn-complete-menu').onclick = () => quitToMenu();
-document.getElementById('btn-play-again').onclick = () => startLevel(0, mode);
+document.getElementById('btn-play-again').onclick = () => startLevel(0, mode, 'story');
 document.getElementById('btn-win-menu').onclick = () => quitToMenu();
+document.getElementById('btn-runover-retry').onclick = () => {
+  if (runMode === 'hardcore') startLevel(0, 1, 'hardcore');
+  else if (runMode === 'endless') startLevel(150, 1, 'endless');
+  else startLevel(currentLevel, mode, 'story');
+};
+document.getElementById('btn-runover-menu').onclick = () => quitToMenu();
 soundBtns.forEach(b => { b.onclick = toggleSound; });
 
 /* ============================================================
@@ -2355,13 +3257,81 @@ function drawWorld() {
   }
   for (const z of level.zones) drawZone(z);
   for (const e of level.entities) drawEntity(e);
+  if (st.boss) drawBoss(st.boss);
   for (const r of st.rocks) drawRock(r);
+  if (st.dark) applyDarkness(x0, x1, y0, y1);
+  if (st.dark) {
+    const g = level.entities.find(e => e.type === 'goal');
+    if (g) drawEntity(g); // the goal glow survives the dark — find it
+  }
   for (const p of st.players) if (p.alive) drawPlayer(p);
   for (const pt of st.particles) drawParticle(pt);
 }
 
+function applyDarkness(x0, x1, y0, y1) {
+  const cam = st.camera;
+  const vw = canvas.clientWidth / cam.zoom, vh = canvas.clientHeight / cam.zoom;
+  ctx.fillStyle = 'rgba(3,2,10,0.9)';
+  ctx.fillRect(cam.x - vw / 2 - 80, cam.y - vh / 2 - 80, vw + 160, vh + 160);
+  ctx.globalCompositeOperation = 'destination-out';
+  for (const p of st.players) {
+    if (!p.alive) continue;
+    const g = ctx.createRadialGradient(p.x, p.y - 12, 8, p.x, p.y - 12, 150);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y - 12, 150, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // traps faintly glow in the dark (the TELL)
+  ctx.fillStyle = 'rgba(255,64,64,0.14)';
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (st.level.hazardAt(x, y)) ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+    }
+  }
+  if (st.laserOn) {
+    ctx.fillStyle = 'rgba(255,45,85,0.2)';
+    for (const i of st.level.lasers) {
+      ctx.fillRect((i % st.level.w) * TILE - 4, ((i / st.level.w) | 0) * TILE - 4, TILE + 8, TILE + 8);
+    }
+  }
+}
+
+function drawBoss(b) {
+  ctx.save();
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  ctx.translate(b.pause > 0 ? (Math.random() - 0.5) * 6 : 0, 0);
+  if (b.pause > 0) {
+    ctx.fillStyle = 'rgba(255,45,85,' + (0.15 + b.pause * 0.2).toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(cx, cy, b.w / 2 + 16, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = '#4a0d16';
+  ctx.beginPath(); ctx.arc(cx, cy, b.w / 2, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#b71c1c';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = '#ff5252';
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2 + st.time;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * (b.w / 2 - 2), cy + Math.sin(a) * (b.w / 2 - 2));
+    ctx.lineTo(cx + Math.cos(a + 0.3) * (b.w / 2 + 10), cy + Math.sin(a + 0.3) * (b.w / 2 + 10));
+    ctx.lineTo(cx + Math.cos(a - 0.3) * (b.w / 2 + 10), cy + Math.sin(a - 0.3) * (b.w / 2 + 10));
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(cx - 16, cy - 10, 8, 0, 7); ctx.arc(cx + 16, cy - 10, 8, 0, 7); ctx.fill();
+  ctx.fillStyle = '#b71c1c';
+  ctx.beginPath(); ctx.arc(cx - 13, cy - 10, 4, 0, 7); ctx.arc(cx + 13, cy - 10, 4, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy + 12, 20, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
+  ctx.restore();
+}
+
 function drawVignette(vw, vh) {
-  const rage = st ? Math.min(1, st.deaths / 8) : 0;
+  const rage = st ? Math.min(1, Math.max(st.deaths / 8, (st.rageMul || 1) < 1 ? 1 : 0)) : 0;
   const g = ctx.createRadialGradient(vw / 2, vh / 2, vh * 0.35, vw / 2, vh / 2, vh * 0.95);
   g.addColorStop(0, 'rgba(0,0,0,0)');
   g.addColorStop(1, 'rgba(60,0,10,' + (0.25 + rage * 0.35).toFixed(3) + ')');
@@ -2426,6 +3396,10 @@ function drawTile(level, x, y) {
       }
       break;
     }
+    case 'B': drawLaser(px, py); break;
+    case '>': case '<': drawConveyor(px, py, ch === '>'); break;
+    case '~': drawIce(px, py); break;
+    case '@': drawOneWayDoor(px, py); break;
     default: break; // zones & entities drawn separately
   }
   ctx.restore();
@@ -2482,6 +3456,68 @@ function drawCracks(px, py, intensity) {
   ctx.stroke();
 }
 
+function drawLaser(px, py) {
+  const on = st.laserOn;
+  const warn = !on && st.laserT < 0.25; // about to switch ON — the TELL
+  if (on) {
+    const g = ctx.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, 'rgba(255,45,85,0.95)');
+    g.addColorStop(0.5, 'rgba(255,138,128,0.95)');
+    g.addColorStop(1, 'rgba(255,45,85,0.95)');
+    ctx.fillStyle = g;
+    ctx.fillRect(px + 4, py, TILE - 8, TILE);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillRect(px + 4, py + TILE / 2 - 2, TILE - 8, 4);
+    ctx.fillStyle = 'rgba(255,45,85,' + (0.12 + Math.abs(Math.sin(st.time * 10)) * 0.1).toFixed(3) + ')';
+    ctx.fillRect(px - 6, py - 6, TILE + 12, TILE + 12);
+  } else {
+    ctx.fillStyle = warn ? 'rgba(255,45,85,0.5)' : 'rgba(171,71,188,0.18)';
+    ctx.fillRect(px + 4, py + 6, TILE - 8, TILE - 12);
+    ctx.strokeStyle = 'rgba(206,147,216,0.5)';
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(px + 3, py + 3, TILE - 6, TILE - 6);
+    ctx.setLineDash([]);
+  }
+}
+
+function drawConveyor(px, py, right) {
+  drawStone(px, py, false);
+  ctx.fillStyle = 'rgba(255,183,77,0.25)';
+  ctx.fillRect(px, py + 6, TILE, TILE - 12);
+  ctx.fillStyle = '#ffb74d';
+  const off = ((st.time * 90 * (right ? 1 : -1)) % 20 + 20) % 20;
+  for (let k = -1; k <= 2; k++) {
+    const cx = px + 10 + k * 20 + off - 10;
+    ctx.beginPath();
+    ctx.moveTo(cx, py + 20); ctx.lineTo(cx + 7, py + 14); ctx.lineTo(cx + 7, py + 26);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawIce(px, py) {
+  ctx.fillStyle = '#263238';
+  ctx.fillRect(px, py, TILE, TILE);
+  ctx.fillStyle = '#4fc3f7';
+  ctx.fillRect(px, py, TILE, 6);
+  ctx.fillStyle = 'rgba(179,229,252,0.5)';
+  ctx.fillRect(px + 4, py + 14, TILE - 8, 3);
+  ctx.fillRect(px + 8, py + 22, TILE - 16, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(px + 6, py + 8, 3, 3);
+  ctx.fillRect(px + 26, py + 11, 2, 2);
+}
+
+function drawOneWayDoor(px, py) {
+  ctx.fillStyle = '#1a237e';
+  ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+  ctx.strokeStyle = '#3949ab';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px + 4, py + 4, TILE - 8, TILE - 8);
+  ctx.fillStyle = '#69f0ae';
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText('→', px + 13, py + 27);
+}
+
 function dashedRect(x, y, w, h, color) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
@@ -2512,6 +3548,18 @@ function drawZone(z) {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(px + s / 2, py + t / 2, s * 0.28, 0, 7); ctx.stroke();
     ctx.beginPath(); ctx.arc(px + s / 2, py + t / 2, s * 0.12, 0, 7); ctx.stroke();
+  } else if (z.kind === 'wind') {
+    ctx.fillStyle = 'rgba(77,208,225,' + (0.08 + 0.12 * pulse).toFixed(3) + ')';
+    ctx.fillRect(px, py, s, t);
+    ctx.strokeStyle = 'rgba(128,240,255,0.8)';
+    ctx.lineWidth = 2;
+    const off = (st.time * 60) % 16;
+    for (let k = 0; k < 2; k++) {
+      const yy = py + 30 - off - k * 16;
+      ctx.beginPath();
+      ctx.moveTo(px + s / 2, yy); ctx.lineTo(px + s / 2 - 5, yy + 8); ctx.lineTo(px + s / 2 + 5, yy + 8);
+      ctx.stroke();
+    }
   } else if (z.kind === 'shift') {
     ctx.fillStyle = 'rgba(255,183,77,' + (0.1 + 0.14 * pulse).toFixed(3) + ')';
     ctx.fillRect(px, py, s, t);

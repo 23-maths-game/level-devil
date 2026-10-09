@@ -10,7 +10,7 @@ const { TILE, createState, update, burst, rectOverlap } = window.TD;
 const LEVELS = window.LEVEL_DEFS;
 const AudioFX = window.AudioFX;
 const mulberry32 = window.mulberry32;
-const TOTAL = LEVELS.length; // 120
+const TOTAL = LEVELS.length; // 150 (121-150 = 💀 HELL tier; endless generates beyond)
 
 /* ---------- the rage curve (from the design doc) ---------- */
 const RAGE_CURVE = [
@@ -19,7 +19,9 @@ const RAGE_CURVE = [
   { upto: 60, emoji: '😡', label: 'Bhai ye unfair hai!' },
   { upto: 80, emoji: '🤬', label: 'MAIN GAME DELETE KAR RAHA HOON' },
   { upto: 100, emoji: '💀', label: 'Bas ek aur try…' },
-  { upto: Infinity, emoji: '☠️', label: 'Welcome to Hell' }
+  { upto: 120, emoji: '☠️', label: 'Welcome to Hell' },
+  { upto: 150, emoji: '☠️💀', label: 'HELL MODE — you asked for this' },
+  { upto: Infinity, emoji: '☠️💀♾️', label: 'ENDLESS HELL' }
 ];
 function rageTag(i) { // i is 0-based
   const n = i + 1;
@@ -47,6 +49,7 @@ const hud = document.getElementById('hud');
 const hudLevel = document.getElementById('hud-level');
 const hudDeaths = document.getElementById('hud-deaths');
 const hudTime = document.getElementById('hud-time');
+const hudTimer = document.getElementById('hud-timer');
 const hudMode = document.getElementById('hud-mode');
 const hudStatus = document.getElementById('hud-status');
 const hudHint = document.getElementById('hud-hint');
@@ -54,21 +57,27 @@ const rageFill = document.getElementById('rage-fill');
 const rageLabel = document.getElementById('rage-label');
 const elToast = document.getElementById('toast');
 const screens = {};
-for (const id of ['menu', 'select', 'pause', 'fakepause', 'complete', 'win', 'howto']) {
+for (const id of ['menu', 'select', 'pause', 'fakepause', 'complete', 'win', 'howto', 'runover']) {
   screens[id] = document.getElementById('screen-' + id);
 }
 const levelGrid = document.getElementById('level-grid');
 const soundBtns = document.querySelectorAll('.sound-toggle');
 
 /* ---------- persistent save ---------- */
-const SAVE_KEY = 'trapdevil_rage_v1';
+const SAVE_KEY = 'trapdevil_rage_v2';
 function freshSave() {
-  return { unlocked: 1, deaths: {}, best: {}, completed: {}, totalDeaths: 0, totalTime: 0, levelsCompleted: 0, muted: false, traps: [] };
+  return { unlocked: 1, deaths: {}, best: {}, completed: {}, totalDeaths: 0, totalTime: 0, levelsCompleted: 0, muted: false, traps: [],
+    rageMode: true, bestEndless: 0, bestHardcore: 0, hardcoreBestTime: null, medalRank: 0 };
 }
 let save = freshSave();
 try {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (raw) save = Object.assign(freshSave(), JSON.parse(raw));
+  let raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) {
+    const old = localStorage.getItem('trapdevil_rage_v1'); // migrate v1 saves
+    if (old) { save = Object.assign(freshSave(), JSON.parse(old)); persist(); }
+  } else {
+    save = Object.assign(freshSave(), JSON.parse(raw));
+  }
 } catch (e) { /* corrupt save = fresh start, like the game intends */ }
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ } }
 AudioFX.enabled = !save.muted;
@@ -76,7 +85,16 @@ AudioFX.enabled = !save.muted;
 /* ---------- runtime state ---------- */
 let st = null;
 let mode = 1;
+let runMode = 'story'; // 'story' | 'endless' | 'hardcore'
+let runStart = 0;
 let currentLevel = 0;
+const genCache = new Map();
+function getDef(levelIndex) { // 0-based; beyond 150 → generated (♾️ endless)
+  if (levelIndex < LEVELS.length) return LEVELS[levelIndex];
+  const n = levelIndex + 1;
+  if (!genCache.has(n)) genCache.set(n, window.generateLevelDef(n));
+  return genCache.get(n);
+}
 let screen = 'menu';
 let keys = {};
 let prevJump = [false, false];
@@ -165,10 +183,12 @@ function showScreen(name) {
 }
 function hideAllScreens() { for (const k in screens) screens[k].classList.add('hidden'); }
 
-function startLevel(i, m) {
+function startLevel(i, m, rm) {
   mode = m || 1;
+  runMode = rm || 'story';
   currentLevel = i;
-  st = createState(LEVELS[i], i, mode);
+  if ((runMode === 'hardcore' && i === 0) || (runMode === 'endless' && i === 150)) runStart = performance.now();
+  st = createState(getDef(i), i, mode, { hardcore: runMode === 'hardcore' });
   st.vw = canvas.clientWidth; st.vh = canvas.clientHeight;
   hudHint.classList.remove('show');
   starCache = null;
@@ -206,7 +226,7 @@ function buildLevelGrid() {
   levelGrid.innerHTML = '';
   for (let i = 0; i < TOTAL; i++) {
     const b = document.createElement('button');
-    b.className = 'lvl-btn';
+    b.className = 'lvl-btn' + (i >= 120 ? ' hell' : '');
     b.textContent = (i + 1);
     b.title = LEVELS[i].name + '\n' + rageTag(i);
     if (i >= save.unlocked) {
@@ -218,9 +238,9 @@ function buildLevelGrid() {
       b.textContent = '😈';
       const d = save.deaths[i] || 0;
       if (d > 0) { const s = document.createElement('span'); s.className = 'lvl-deaths'; s.textContent = d; b.appendChild(s); }
-      b.onclick = () => startLevel(i, mode);
+      b.onclick = () => startLevel(i, mode, 'story');
     } else {
-      b.onclick = () => startLevel(i, mode);
+      b.onclick = () => startLevel(i, mode, 'story');
     }
     levelGrid.appendChild(b);
   }
@@ -257,7 +277,8 @@ function buildTrapedia() {
   const known = save.traps;
   const all = ['Spikes', 'Crumbling Floor', 'Coward Floor', 'Fake Platform', 'Invisible Wall', 'Reverse Zone',
     'Camera Flip', 'Layout Shift', 'Teleport Pad', 'Checkpoint', 'Fake Checkpoint', 'Fake Finish',
-    'Lever', 'Wrong Lever', 'Door', 'Killer Door', 'Rock Spawner', 'Crusher', 'Moving Platform'];
+    'Lever', 'Wrong Lever', 'Door', 'Killer Door', 'Rock Spawner', 'Crusher', 'Moving Platform',
+    'Laser Beam', 'Conveyor Belt', 'Ice Floor', 'Updraft Wind', 'One-Way Door', 'Level Timer', 'Darkness', 'The Devil (Boss)'];
   el.innerHTML = all.map(t => {
     const knownTrap = known.indexOf(t) !== -1;
     return '<div class="trapedia-row ' + (knownTrap ? 'known' : 'unknown') + '">' +
@@ -277,6 +298,17 @@ function updateSoundBtns() {
   soundBtns.forEach(b => { b.textContent = AudioFX.enabled ? '🔊 SOUND: ON' : '🔇 SOUND: OFF'; });
 }
 updateSoundBtns();
+function toggleRageMode() {
+  save.rageMode = !save.rageMode;
+  persist();
+  updateRageBtn();
+  toast(save.rageMode ? '😈 RAGE MODE: ON — die 8 times in a level and the traps get ANGRY' : '😈 RAGE MODE: OFF — showing mercy', 'info');
+}
+function updateRageBtn() {
+  const b = document.getElementById('btn-rage');
+  if (b) b.textContent = (save.rageMode ? '😈 RAGE MODE: ON' : '😈 RAGE MODE: OFF') + (save.bestEndless ? ' · best ♾️ ' + save.bestEndless : '');
+}
+updateRageBtn();
 
 /* ---------- main loop ---------- */
 function frame(now) {
@@ -362,6 +394,21 @@ function drainEvents() {
         toast('👥 Both players on the flag. BOTH. Of. You.', 'info');
         break;
       case 'win': AudioFX.win(); break;
+      case 'laser': if (ev.on) AudioFX.hum(); break;
+      case 'ticktock': AudioFX.tick(); break;
+      case 'timeup':
+        AudioFX.timeup();
+        showRunOver("⏱️ TIME'S UP", 'Level ' + (currentLevel + 1) + ' — ' + st.level.name + '<br>The clock ran out. The level wins this round.');
+        break;
+      case 'bossroar':
+        AudioFX.roar();
+        toast('👹 THE DEVIL ROARS. Run.', 'troll');
+        break;
+      case 'ragemode':
+        AudioFX.rageOn();
+        toast('😈 RAGE MODE ACTIVATED — the level hates you MORE now.', 'troll');
+        break;
+      case 'runover': onRunOver(); break;
       case 'jump': AudioFX.jump(); break;
       case 'land': AudioFX.land(); break;
       case 'crumble': AudioFX.noise(0.15, 0.1, 800); break;
@@ -378,16 +425,44 @@ function fmtTime(s) {
   return m + ':' + (ss < 10 ? '0' : '') + ss;
 }
 function updateHUD() {
-  hudLevel.textContent = rageTag(currentLevel) + '  ·  Lvl ' + (currentLevel + 1) + '/' + TOTAL + ' — ' + st.level.name;
+  const n = currentLevel + 1;
+  if (runMode === 'endless') {
+    hudLevel.textContent = '♾️ ENDLESS · Hell Lvl ' + (n - 150) + ' — ' + st.level.name;
+  } else {
+    hudLevel.textContent = rageTag(currentLevel) + '  ·  Lvl ' + n + '/' + TOTAL + ' — ' + st.level.name;
+  }
   hudDeaths.textContent = '💀 ' + st.deaths;
   hudTime.textContent = '⏱ ' + fmtTime(st.time);
-  hudMode.textContent = st.mode === 2 ? '👥 2P · SHARED FATE' : '😤 1P';
+  // level timer (the TELL is the countdown + ticking)
+  if (st.level.def.timeLimit) {
+    const tl = Math.max(0, st.timeLeft);
+    hudTimer.textContent = '⏰ ' + fmtTime(tl);
+    hudTimer.classList.toggle('danger', tl <= 5);
+    hudTimer.classList.remove('hidden');
+  } else {
+    hudTimer.classList.add('hidden');
+  }
+  if (runMode === 'hardcore') {
+    hudMode.textContent = '💀 HARDCORE · 1 LIFE · ⏱ ' + fmtTime((performance.now() - runStart) / 1000);
+  } else if (runMode === 'endless') {
+    hudMode.textContent = '♾️ ENDLESS · streak ' + (n - 150);
+  } else {
+    hudMode.textContent = st.mode === 2 ? '👥 2P · SHARED FATE' : '😤 1P';
+  }
+  // rage meter + RAGE MODE (traps get faster)
   const rage = Math.min(1, st.deaths / 8);
   rageFill.style.width = (rage * 100) + '%';
-  rageLabel.textContent = rage >= 1 ? 'RAGE MODE 😤' : (rage > 0.5 ? 'tilting…' : '');
+  let rageMul = 1;
+  if (save.rageMode && rage >= 1 && !st.complete && !st.runOver && !st.timeUp) {
+    rageMul = 0.55;
+    if (!st._rageAnnounced) { st._rageAnnounced = true; st.events.push({ type: 'ragemode' }); }
+  }
+  st.rageMul = rageMul;
+  rageLabel.textContent = rageMul < 1 ? '😈 RAGE MODE — traps are ANGRY' : (rage >= 1 ? 'RAGE MODE 😤' : (rage > 0.5 ? 'tilting…' : ''));
   let status = '';
   if (st.cameraFlip > 0) status += '📷 ';
   if (st.players.some(p => p.inverted)) status += '⇄ ';
+  if (st.laserOn) status += '🔴 ';
   hudStatus.textContent = status;
 }
 
@@ -402,12 +477,27 @@ function onLevelComplete() {
   save.completed[currentLevel] = t;
   save.levelsCompleted = (save.levelsCompleted || 0) + 1;
   save.totalTime = (save.totalTime || 0) + t;
-  if (currentLevel + 2 > save.unlocked && currentLevel + 1 < TOTAL) save.unlocked = currentLevel + 2;
+  if (runMode !== 'endless' && currentLevel + 2 > save.unlocked && currentLevel + 1 < TOTAL) save.unlocked = currentLevel + 2;
+  if (runMode === 'endless') save.bestEndless = Math.max(save.bestEndless || 0, currentLevel + 1 - 150);
+  if (runMode === 'hardcore') save.bestHardcore = Math.max(save.bestHardcore || 0, currentLevel + 1);
   persist();
+  if (runMode === 'endless') {
+    document.getElementById('complete-title').textContent = 'HELL SURVIVED 😈';
+    document.getElementById('complete-stats').innerHTML =
+      '<b>' + st.level.name + '</b><br>' +
+      'Hell level: 💀 ' + (currentLevel + 1 - 150) + '<br>' +
+      'Deaths this level: 💀 ' + deaths + '<br>' +
+      'Time: ⏱ ' + fmtTime(t) + (isBest ? '  (new best! 🏆)' : '  (best: ' + fmtTime(prevBest) + ')') + '<br>' +
+      'Best streak: ♾️ ' + save.bestEndless;
+    document.getElementById('btn-next').textContent = '▶ Next circle of hell';
+    showScreen('complete');
+    return;
+  }
   if (currentLevel === TOTAL - 1) {
     showWinScreen();
     return;
   }
+  document.getElementById('btn-next').textContent = '▶ Next level';
   document.getElementById('complete-title').textContent = 'LEVEL COMPLETE 😈';
   document.getElementById('complete-stats').innerHTML =
     '<b>' + st.level.name + '</b><br>' +
@@ -416,31 +506,78 @@ function onLevelComplete() {
   showScreen('complete');
 }
 function showWinScreen() {
+  let medalHtml = '';
+  if (runMode === 'hardcore') {
+    const secs = (performance.now() - runStart) / 1000;
+    const rank = secs < 600 ? 3 : secs < 1080 ? 2 : secs < 1800 ? 1 : 0;
+    if (save.hardcoreBestTime === null || secs < save.hardcoreBestTime) save.hardcoreBestTime = secs;
+    save.medalRank = Math.max(save.medalRank || 0, rank);
+    persist();
+    medalHtml = '<br>💀 Hardcore clear time: ⏱ ' + fmtTime(secs) + ' — ' +
+      ['🎖️ FINISHER', '🥉 BRONZE', '🥈 SILVER', '🥇 GOLD'][rank];
+  }
   document.getElementById('win-stats').innerHTML =
-    'Levels survived: 😈 ' + TOTAL + '<br>' +
+    'Levels survived: 😈 ' + (runMode === 'endless' ? '♾️ ' + (currentLevel + 1 - 150) : TOTAL) + '<br>' +
     'Total deaths: 💀 ' + save.totalDeaths + '<br>' +
     'Total time: ⏱ ' + fmtTime(save.totalTime) + '<br>' +
+    medalHtml +
     'You are now legally allowed to uninstall. 😈';
   showScreen('win');
 }
 
+/* ---------- run over (hardcore / endless / time up) ---------- */
+function showRunOver(title, msg) {
+  if (screen !== 'play') return;
+  document.getElementById('runover-title').textContent = title;
+  document.getElementById('runover-stats').innerHTML = msg;
+  showScreen('runover');
+}
+function onRunOver() {
+  const reached = currentLevel + 1;
+  if (runMode === 'hardcore') {
+    save.bestHardcore = Math.max(save.bestHardcore || 0, reached);
+    persist();
+    showRunOver('💀 HARDCORE RUN ENDED',
+      'You died on <b>Level ' + reached + '</b> — ' + st.level.name + '<br>' +
+      'Best hardcore run: 💀 level ' + save.bestHardcore + '<br>' +
+      'The Devil wins this round. 😈');
+  } else if (runMode === 'endless') {
+    const streak = reached - 150;
+    save.bestEndless = Math.max(save.bestEndless || 0, streak);
+    persist();
+    showRunOver('♾️ RUN OVER',
+      'You survived <b>' + streak + '</b> hell level' + (streak === 1 ? '' : 's') + '<br>' +
+      'Last level: ' + reached + ' — ' + st.level.name + '<br>' +
+      'Best streak: ♾️ ' + save.bestEndless);
+  }
+}
+
 /* ---------- menu wiring ---------- */
-document.getElementById('btn-1p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 1); };
-document.getElementById('btn-2p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 2); };
+document.getElementById('btn-1p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 1, 'story'); };
+document.getElementById('btn-2p').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 2, 'story'); };
+document.getElementById('btn-endless').onclick = () => { AudioFX.init(); startLevel(150, 1, 'endless'); };
+document.getElementById('btn-hardcore').onclick = () => { AudioFX.init(); startLevel(0, 1, 'hardcore'); };
+document.getElementById('btn-rage').onclick = toggleRageMode;
 document.getElementById('btn-select').onclick = () => { buildLevelGrid(); showScreen('select'); };
 document.getElementById('btn-howto').onclick = () => showScreen('howto');
 document.getElementById('btn-menu-from-select').onclick = () => showScreen('menu');
 document.getElementById('btn-menu-from-howto').onclick = () => showScreen('menu');
 document.getElementById('btn-resume').onclick = () => resumeGame();
-document.getElementById('btn-restart').onclick = () => startLevel(currentLevel, mode);
+document.getElementById('btn-restart').onclick = () => startLevel(currentLevel, mode, runMode);
 document.getElementById('btn-quit').onclick = () => quitToMenu();
 document.getElementById('btn-fake-resume').onclick = () => closeFakePause(true);
 document.getElementById('btn-fake-quit').onclick = () => { quitToMenu(); toast('😂 Quitter. (It worked, though.)', 'troll'); };
-document.getElementById('btn-next').onclick = () => startLevel(currentLevel + 1, mode);
-document.getElementById('btn-retry').onclick = () => startLevel(currentLevel, mode);
+document.getElementById('btn-next').onclick = () => startLevel(currentLevel + 1, mode, runMode);
+document.getElementById('btn-retry').onclick = () => startLevel(currentLevel, mode, runMode);
 document.getElementById('btn-complete-menu').onclick = () => quitToMenu();
-document.getElementById('btn-play-again').onclick = () => startLevel(0, mode);
+document.getElementById('btn-play-again').onclick = () => startLevel(0, mode, 'story');
 document.getElementById('btn-win-menu').onclick = () => quitToMenu();
+document.getElementById('btn-runover-retry').onclick = () => {
+  if (runMode === 'hardcore') startLevel(0, 1, 'hardcore');
+  else if (runMode === 'endless') startLevel(150, 1, 'endless');
+  else startLevel(currentLevel, mode, 'story');
+};
+document.getElementById('btn-runover-menu').onclick = () => quitToMenu();
 soundBtns.forEach(b => { b.onclick = toggleSound; });
 
 /* ============================================================
@@ -505,13 +642,81 @@ function drawWorld() {
   }
   for (const z of level.zones) drawZone(z);
   for (const e of level.entities) drawEntity(e);
+  if (st.boss) drawBoss(st.boss);
   for (const r of st.rocks) drawRock(r);
+  if (st.dark) applyDarkness(x0, x1, y0, y1);
+  if (st.dark) {
+    const g = level.entities.find(e => e.type === 'goal');
+    if (g) drawEntity(g); // the goal glow survives the dark — find it
+  }
   for (const p of st.players) if (p.alive) drawPlayer(p);
   for (const pt of st.particles) drawParticle(pt);
 }
 
+function applyDarkness(x0, x1, y0, y1) {
+  const cam = st.camera;
+  const vw = canvas.clientWidth / cam.zoom, vh = canvas.clientHeight / cam.zoom;
+  ctx.fillStyle = 'rgba(3,2,10,0.9)';
+  ctx.fillRect(cam.x - vw / 2 - 80, cam.y - vh / 2 - 80, vw + 160, vh + 160);
+  ctx.globalCompositeOperation = 'destination-out';
+  for (const p of st.players) {
+    if (!p.alive) continue;
+    const g = ctx.createRadialGradient(p.x, p.y - 12, 8, p.x, p.y - 12, 150);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y - 12, 150, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // traps faintly glow in the dark (the TELL)
+  ctx.fillStyle = 'rgba(255,64,64,0.14)';
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (st.level.hazardAt(x, y)) ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+    }
+  }
+  if (st.laserOn) {
+    ctx.fillStyle = 'rgba(255,45,85,0.2)';
+    for (const i of st.level.lasers) {
+      ctx.fillRect((i % st.level.w) * TILE - 4, ((i / st.level.w) | 0) * TILE - 4, TILE + 8, TILE + 8);
+    }
+  }
+}
+
+function drawBoss(b) {
+  ctx.save();
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  ctx.translate(b.pause > 0 ? (Math.random() - 0.5) * 6 : 0, 0);
+  if (b.pause > 0) {
+    ctx.fillStyle = 'rgba(255,45,85,' + (0.15 + b.pause * 0.2).toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(cx, cy, b.w / 2 + 16, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = '#4a0d16';
+  ctx.beginPath(); ctx.arc(cx, cy, b.w / 2, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#b71c1c';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = '#ff5252';
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2 + st.time;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * (b.w / 2 - 2), cy + Math.sin(a) * (b.w / 2 - 2));
+    ctx.lineTo(cx + Math.cos(a + 0.3) * (b.w / 2 + 10), cy + Math.sin(a + 0.3) * (b.w / 2 + 10));
+    ctx.lineTo(cx + Math.cos(a - 0.3) * (b.w / 2 + 10), cy + Math.sin(a - 0.3) * (b.w / 2 + 10));
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(cx - 16, cy - 10, 8, 0, 7); ctx.arc(cx + 16, cy - 10, 8, 0, 7); ctx.fill();
+  ctx.fillStyle = '#b71c1c';
+  ctx.beginPath(); ctx.arc(cx - 13, cy - 10, 4, 0, 7); ctx.arc(cx + 13, cy - 10, 4, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy + 12, 20, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
+  ctx.restore();
+}
+
 function drawVignette(vw, vh) {
-  const rage = st ? Math.min(1, st.deaths / 8) : 0;
+  const rage = st ? Math.min(1, Math.max(st.deaths / 8, (st.rageMul || 1) < 1 ? 1 : 0)) : 0;
   const g = ctx.createRadialGradient(vw / 2, vh / 2, vh * 0.35, vw / 2, vh / 2, vh * 0.95);
   g.addColorStop(0, 'rgba(0,0,0,0)');
   g.addColorStop(1, 'rgba(60,0,10,' + (0.25 + rage * 0.35).toFixed(3) + ')');
@@ -576,6 +781,10 @@ function drawTile(level, x, y) {
       }
       break;
     }
+    case 'B': drawLaser(px, py); break;
+    case '>': case '<': drawConveyor(px, py, ch === '>'); break;
+    case '~': drawIce(px, py); break;
+    case '@': drawOneWayDoor(px, py); break;
     default: break; // zones & entities drawn separately
   }
   ctx.restore();
@@ -632,6 +841,68 @@ function drawCracks(px, py, intensity) {
   ctx.stroke();
 }
 
+function drawLaser(px, py) {
+  const on = st.laserOn;
+  const warn = !on && st.laserT < 0.25; // about to switch ON — the TELL
+  if (on) {
+    const g = ctx.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, 'rgba(255,45,85,0.95)');
+    g.addColorStop(0.5, 'rgba(255,138,128,0.95)');
+    g.addColorStop(1, 'rgba(255,45,85,0.95)');
+    ctx.fillStyle = g;
+    ctx.fillRect(px + 4, py, TILE - 8, TILE);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillRect(px + 4, py + TILE / 2 - 2, TILE - 8, 4);
+    ctx.fillStyle = 'rgba(255,45,85,' + (0.12 + Math.abs(Math.sin(st.time * 10)) * 0.1).toFixed(3) + ')';
+    ctx.fillRect(px - 6, py - 6, TILE + 12, TILE + 12);
+  } else {
+    ctx.fillStyle = warn ? 'rgba(255,45,85,0.5)' : 'rgba(171,71,188,0.18)';
+    ctx.fillRect(px + 4, py + 6, TILE - 8, TILE - 12);
+    ctx.strokeStyle = 'rgba(206,147,216,0.5)';
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(px + 3, py + 3, TILE - 6, TILE - 6);
+    ctx.setLineDash([]);
+  }
+}
+
+function drawConveyor(px, py, right) {
+  drawStone(px, py, false);
+  ctx.fillStyle = 'rgba(255,183,77,0.25)';
+  ctx.fillRect(px, py + 6, TILE, TILE - 12);
+  ctx.fillStyle = '#ffb74d';
+  const off = ((st.time * 90 * (right ? 1 : -1)) % 20 + 20) % 20;
+  for (let k = -1; k <= 2; k++) {
+    const cx = px + 10 + k * 20 + off - 10;
+    ctx.beginPath();
+    ctx.moveTo(cx, py + 20); ctx.lineTo(cx + 7, py + 14); ctx.lineTo(cx + 7, py + 26);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawIce(px, py) {
+  ctx.fillStyle = '#263238';
+  ctx.fillRect(px, py, TILE, TILE);
+  ctx.fillStyle = '#4fc3f7';
+  ctx.fillRect(px, py, TILE, 6);
+  ctx.fillStyle = 'rgba(179,229,252,0.5)';
+  ctx.fillRect(px + 4, py + 14, TILE - 8, 3);
+  ctx.fillRect(px + 8, py + 22, TILE - 16, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(px + 6, py + 8, 3, 3);
+  ctx.fillRect(px + 26, py + 11, 2, 2);
+}
+
+function drawOneWayDoor(px, py) {
+  ctx.fillStyle = '#1a237e';
+  ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+  ctx.strokeStyle = '#3949ab';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px + 4, py + 4, TILE - 8, TILE - 8);
+  ctx.fillStyle = '#69f0ae';
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText('→', px + 13, py + 27);
+}
+
 function dashedRect(x, y, w, h, color) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
@@ -662,6 +933,18 @@ function drawZone(z) {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(px + s / 2, py + t / 2, s * 0.28, 0, 7); ctx.stroke();
     ctx.beginPath(); ctx.arc(px + s / 2, py + t / 2, s * 0.12, 0, 7); ctx.stroke();
+  } else if (z.kind === 'wind') {
+    ctx.fillStyle = 'rgba(77,208,225,' + (0.08 + 0.12 * pulse).toFixed(3) + ')';
+    ctx.fillRect(px, py, s, t);
+    ctx.strokeStyle = 'rgba(128,240,255,0.8)';
+    ctx.lineWidth = 2;
+    const off = (st.time * 60) % 16;
+    for (let k = 0; k < 2; k++) {
+      const yy = py + 30 - off - k * 16;
+      ctx.beginPath();
+      ctx.moveTo(px + s / 2, yy); ctx.lineTo(px + s / 2 - 5, yy + 8); ctx.lineTo(px + s / 2 + 5, yy + 8);
+      ctx.stroke();
+    }
   } else if (z.kind === 'shift') {
     ctx.fillStyle = 'rgba(255,183,77,' + (0.1 + 0.14 * pulse).toFixed(3) + ')';
     ctx.fillRect(px, py, s, t);
