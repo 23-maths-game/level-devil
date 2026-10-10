@@ -54,7 +54,9 @@ const TRAP_CHARS = {
   L: 'Lever', K: 'Wrong Lever', O: 'Door', X: 'Killer Door',
   S: 'Rock Spawner', E: 'Crusher', M: 'Moving Platform',
   B: 'Laser Beam', '>': 'Conveyor Belt', '<': 'Conveyor Belt', '~': 'Ice Floor',
-  '&': 'Updraft Wind', '@': 'One-Way Door'
+  '&': 'Updraft Wind', '@': 'One-Way Door',
+  J: 'Bounce Pad', o: 'Pendulum', N: 'Spike Shooter', n: 'Spike Shooter',
+  U: 'Rising Spikes', v: 'Vortex', s: 'Swap Pad'
 };
 
 function inferTrapList(def) {
@@ -1114,7 +1116,13 @@ function generateLevelDef(n) {
   if (n >= 90) pool.push('M', 'X', 'Z', 'Y');
   // 💀 HELL tier (endless mode, n ≥ 121): lasers, conveyors, ice, wind, one-way doors
   if (n >= 121) pool.push('B', '>', '~', '&', '@', 'B', '>', '~', 'B', '&');
-  const budget = Math.min(10, 2 + Math.floor((n - 25) / 12));
+  // 🔥 3.0 MAX: levels 151-500 get DENSER hell traps
+  if (n >= 151) pool.push('B', '>', '~', '&', '@', 'B', '>', '~', '&', '@', 'B', '>');
+  // 🆕 3.0: the six new traps join the pool from 161
+  if (n >= 161) pool.push('J', 'o', 'N', 'U', 'v', 's', 'J', 'U', 'N', 'o', 'v');
+  const budget = n >= 151
+    ? Math.min(12, 2 + Math.floor((n - 25) / 10))
+    : Math.min(10, 2 + Math.floor((n - 25) / 12));
   const segIdxs = [];
   for (let s = 1; s < segments.length - 1; s++) segIdxs.push(s);
   for (let i = segIdxs.length - 1; i > 0; i--) {
@@ -1156,6 +1164,11 @@ function generateLevelDef(n) {
       case 'B': return [[tx, py, 'air'], [tx + 1, py, 'air'], [tx + 2, py, 'air']];
       case '>': return [[tx, fy, 'floor'], [tx + 1, fy, 'floor']];
       case '&': return [[tx, py, 'air'], [tx, py - 1, 'air'], [tx, py - 2, 'air']];
+      case 'J': case 's': return [[tx, py, 'air']];
+      case 'o': return [[tx, py - 3, 'air'], [tx, py - 2, 'air'], [tx, py - 1, 'air']];
+      case 'N': case 'n': return [[tx, py - 1, 'air']];
+      case 'U': return [[tx, fy, 'floor']];
+      case 'v': return [[tx, py, 'air'], [tx, py - 1, 'air']];
       case 'S': return [[tx, 1, 'air']];
       case 'E': return [[tx, 2, 'air']];
       default: return null;
@@ -1220,6 +1233,14 @@ function generateLevelDef(n) {
       case '~': grid[fy][tx] = '~'; return true;
       case '&': grid[py][tx] = '&'; grid[py - 1][tx] = '&'; grid[py - 2][tx] = '&'; return true;
       case '@': grid[py][tx] = '@'; return true;
+      // 🆕 new traps
+      case 'J': grid[py][tx] = 'J'; return true;
+      case 's': grid[py][tx] = 's'; return true;
+      case 'o': grid[py - 3][tx] = 'o'; return true;
+      case 'N': grid[py - 1][tx] = 'N'; return true;
+      case 'n': grid[py - 1][tx] = 'n'; return true;
+      case 'U': grid[fy][tx] = 'U'; return true;
+      case 'v': grid[py][tx] = 'v'; grid[py - 1][tx] = 'v'; return true;
       default: return false;
     }
   }
@@ -1235,6 +1256,11 @@ function generateLevelDef(n) {
     if (n >= 130) def.timeLimit = 40 + (n % 25);
     if (n >= 140 && n % 3 === 0) def.dark = true;
   }
+  // 🔥 3.0 MAX: 151-500 always have a timer; half are pitch dark
+  if (n >= 151) {
+    def.timeLimit = 30 + (n % 35);
+    if (n % 2 === 0) def.dark = true;
+  }
   const list = inferTrapList(def);
   def.hint = list.length
     ? 'This level contains: ' + list.join(', ') + '. Every trap has a tell — find it before it finds you.'
@@ -1244,19 +1270,250 @@ function generateLevelDef(n) {
   function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
 }
 
-/* ---------- assemble all 150 levels ---------- */
+/* ---------- 🆕 NEW-TRAPS SHOWCASE — levels 151-160 ----------
+   J bounce pad · o pendulum · N/n spike shooter · U rising spikes ·
+   v vortex · s swap pad. Every one has a visible TELL. */
+const NEW_TRAPS_LEVELS = [
+  {
+    name: '🆕 Boing!',
+    hint: 'The spring launches you. The pit does not forgive.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P...J.......................G.',
+      '########....########HHHH########',
+      '########HHHH####################'
+    ]
+  },
+  {
+    name: '🆕 Pendulum Crossing',
+    hint: 'The balls swing on chains. Watch the arc. Time the gaps.',
+    map: [
+      '..................................',
+      '........o...............o.........',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..P.............................G.',
+      '##########HHHH##########HHHH######',
+      '##################################'
+    ]
+  },
+  {
+    name: '🆕 Shooting Gallery',
+    hint: 'Barrels blink, then fire. The shots are faster than you. Jump.',
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..N.......N.......N...............',
+      '..P.............................G.',
+      '##########HHHH####################',
+      '##################################'
+    ]
+  },
+  {
+    name: '🆕 Whack-a-Mole',
+    hint: 'The floor plays whack-a-mole with spikes. Sprint when they are DOWN.',
+    map: [
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '................................',
+      '..P...........................G.',
+      '#####UUUUUUUUUU........#########',
+      '################################'
+    ]
+  },
+  {
+    name: '🆕 Tornado Alley',
+    hint: 'Purple tornadoes pull you in. Fight them, or feed them.',
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '....vvvv..........vvvv............',
+      '..P.vvvv..........vvvv..........G.',
+      '#####....#....#....###############',
+      '#####HHHH#HHHH#HHHH###############'
+    ]
+  },
+  {
+    name: '🆕 Body Swap',
+    hint: 'Step on the pad, trade bodies with your friend. (1P: it is just a shortcut. Backwards.)',
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..P.......s.........s..........G..',
+      '#####HHHH################HHHH#####',
+      '##################################'
+    ]
+  },
+  {
+    name: '🆕 Launcher Park',
+    hint: 'Bounce over the whack-a-mole floor. Land when it is DOWN.',
+    map: [
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..P.J...........................G.',
+      '#####UUUUUUUUU........HHHH########',
+      '##################################'
+    ]
+  },
+  {
+    name: '🆕 Pendulum + Shooter',
+    hint: 'A swinging ball AND a sniper. Pick your poison.',
+    map: [
+      '..................................',
+      '..........o.......................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..................................',
+      '..N...............................',
+      '..P.............................G.',
+      '##################################',
+      '##################################'
+    ]
+  },
+  {
+    name: '🆕 The Vortex Gauntlet',
+    hint: 'The belt carries you INTO a tornado, past lasers, toward spikes. Multitasking.',
+    map: [
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....vvvv............vvvv............',
+      '..P.vvvvBB..........vvvv..........G.',
+      '####>>>>>>..........HHHH############',
+      '####################################'
+    ]
+  },
+  {
+    name: '🆕 Everything Launcher',
+    hint: 'Bounce, swap, dodge the ball, dodge the bullets, sprint the whack-a-mole floor. Everything.',
+    map: [
+      '....................................',
+      '..........o.........................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....................................',
+      '....N........vv.....................',
+      '..P.J..s....vv....................G.',
+      '#####UUUUUUU.....HHHH.....HHHH######',
+      '####################################'
+    ]
+  }
+];
+
+/* ---------- 👹 boss arena generator (boss fights at 200/250/300/350/400/450/500) ----------
+   A seeded arena: floor + bedrock + hidey platforms + checkpoint + goal.
+   The boss is dynamic (engine) — the validator walks the floor, which is
+   always continuous. The TELL: he is huge, he is visible, he ROARS + shakes
+   before every direction change. Platforms are safe; the floor is not. */
+function generateBossDef(n) {
+  const rng = mulberry32(n * 104729 + 7);
+  const W = 36, H = 14;
+  const grid = [];
+  for (let y = 0; y < H; y++) grid.push(new Array(W).fill('.'));
+  // hidey platforms — seeded subset of 4 slots (the floor path always exists)
+  const slots = [[5, 8], [13, 16], [21, 24], [29, 32]];
+  for (const s of slots) {
+    if (rng() < 0.85) for (let x = s[0]; x <= s[1]; x++) grid[9][x] = '=';
+  }
+  grid[11][19] = 'C';  // checkpoint mid-arena
+  grid[11][2] = 'P';   // spawn
+  grid[11][34] = 'G';  // goal
+  for (let x = 0; x < W; x++) { grid[12][x] = '#'; grid[13][x] = '#'; }
+  const circle = Math.round(n / 50); // 4..10
+  return {
+    name: n === 500 ? '👑 THE DEVIL KING — FINAL BOSS' : '👹 The Devil — Circle ' + circle,
+    hint: '👹 A BOSS FIGHT. He rolls the floor. Hide on platforms — or jump over him. He ROARS before every turn.' +
+      (circle >= 8 ? ' TWO Devils. Both roll. 😈' : ''),
+    boss: true,
+    bossSpeed: 140 + circle * 15,          // 200 → 290 px/s
+    bossW: 2.5 + (circle % 3) * 0.5,       // 2.5 - 3.5 tiles wide
+    bossH: 2,
+    bossCount: circle >= 8 ? 2 : 1,        // levels 400+ = TWO bosses
+    bossPause: circle >= 8 ? 0.4 : 0.6,    // higher circles = less warning time
+    map: grid.map(r => r.join(''))
+  };
+}
+
+/* ---------- 📅 DAILY HELL — one seeded level per day, same for everyone ---------- */
+function generateDailyDef(date) {
+  const seed = date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
+  const n = 300 + (seed % 180); // a hard generated level, 300-479
+  const def = generateLevelDef(n);
+  const ds = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  return Object.assign({}, def, {
+    name: '📅 Daily Hell — ' + ds,
+    hint: "Today's seeded hell level. Same for everyone, everywhere. Come back tomorrow for a new one.",
+    dailySeed: seed
+  });
+}
+
+const BOSS_LEVEL_NUMBERS = [200, 250, 300, 350, 400, 450, 500];
+
+/* ---------- assemble all 500 levels ---------- */
 const LEVEL_DEFS = HANDCRAFTED.slice();          // levels 1-24
 for (let n = 25; n <= 120; n++) LEVEL_DEFS.push(generateLevelDef(n)); // levels 25-120
 for (const h of HELL_LEVELS) LEVEL_DEFS.push(h); // levels 121-150 (💀 HELL tier)
+for (const t of NEW_TRAPS_LEVELS) LEVEL_DEFS.push(t); // levels 151-160 (🆕 new traps showcase)
+for (let n = 161; n <= 500; n++) {               // levels 161-500 (🔥 MAX: denser, timed, dark)
+  LEVEL_DEFS.push(BOSS_LEVEL_NUMBERS.indexOf(n) !== -1 ? generateBossDef(n) : generateLevelDef(n));
+}
 
-const TOTAL_LEVELS = LEVEL_DEFS.length; // 150
+const TOTAL_LEVELS = LEVEL_DEFS.length; // 500
 
 global.LEVEL_DEFS = LEVEL_DEFS;
 global.mulberry32 = mulberry32;
 global.inferTrapList = inferTrapList;
-global.generateLevelDef = generateLevelDef; // ♾️ endless mode uses this for n > 150
+global.generateLevelDef = generateLevelDef; // ♾️ endless mode uses this for n > 500
+global.generateBossDef = generateBossDef;
+global.generateDailyDef = generateDailyDef; // 📅 daily hell
 global.TOTAL_LEVELS = TOTAL_LEVELS;
 
-const api = { LEVEL_DEFS, HANDCRAFTED, HELL_LEVELS, generateLevelDef, mulberry32, inferTrapList, TRAP_CHARS, TOTAL_LEVELS };
+const api = { LEVEL_DEFS, HANDCRAFTED, HELL_LEVELS, NEW_TRAPS_LEVELS, generateLevelDef, generateBossDef, generateDailyDef, mulberry32, inferTrapList, TRAP_CHARS, TOTAL_LEVELS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

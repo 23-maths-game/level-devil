@@ -77,9 +77,9 @@ console.log('🔍 Validating ' + LEVEL_DEFS.length + ' levels + 30 endless sampl
 for (let i = 0; i < LEVEL_DEFS.length; i++) {
   validateDef(LEVEL_DEFS[i], i);
 }
-// ♾️ endless mode: prove generated hell levels (151-180) are beatable too
-for (let n = 151; n <= 180; n++) {
-  validateDef(require('../js/levels.js').generateLevelDef(n), 150 + (n - 150), 'endless ' + n);
+// ♾️ endless mode: prove generated levels beyond 500 (501-530) are beatable too
+for (let n = 501; n <= 530; n++) {
+  validateDef(require('../js/levels.js').generateLevelDef(n), 500 + (n - 500), 'endless ' + n);
 }
 
 function validateDef(def, i, tag) {
@@ -101,10 +101,11 @@ function validateDef(def, i, tag) {
     for (const t of level.shift.remove) level.solids[t.y * level.w + t.x] = 0;
     for (const t of level.shift.spike) level.hazards[t.y * level.w + t.x] = 1;
   }
-  // one-way doors (@) only block BACKTRACKING — forward progress is always possible
+  // one-way doors (@) and rising spikes (U) only block at certain times —
+  // forward progress is always possible (doors: left→right; spikes: DOWN phase)
   for (let y = 0; y < level.h; y++) {
     for (let x = 0; x < level.w; x++) {
-      if (def.map[y][x] === '@') level.solids[y * level.w + x] = 0;
+      if (def.map[y][x] === '@' || def.map[y][x] === 'U') level.solids[y * level.w + x] = 0;
     }
   }
   // moving platforms: their whole path is standable at some point in time

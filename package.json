@@ -1,7 +1,7 @@
 {
   "name": "trap-devil-rage-edition",
-  "version": "2.0.0",
-  "description": "A rage-inducing but FAIR 2D troll platformer. 150 levels + endless mode, 1-2 players, 23 troll mechanics. You don't lose because you're bad — you lose because the level hates you.",
+  "version": "3.0.0",
+  "description": "A rage-inducing but FAIR 2D troll platformer. 500 levels + endless, 1-2 players + 2P race, 27 troll mechanics, 8 boss fights, leaderboard, achievements. You don't lose because you're bad — you lose because the level hates you.",
   "main": "index.html",
   "scripts": {
     "start": "node tools/serve.cjs",

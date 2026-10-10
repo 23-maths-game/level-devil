@@ -80,6 +80,15 @@ const AudioFX = {
     this.tone(880, 0.12, 'square', 0.15, 0, 0.15);
     this.tone(440, 0.5, 'sawtooth', 0.18, 220, 0.3);
   },
+  boing() { this.tone(220, 0.18, 'square', 0.15, 880); this.tone(330, 0.12, 'sine', 0.1, 990, 0.05); },
+  swap() { this.tone(600, 0.1, 'sine', 0.12, 200); this.tone(200, 0.15, 'sine', 0.12, 600, 0.1); },
+  shoot() { this.tone(1200, 0.06, 'square', 0.08, 300); },
+  rise() { this.noise(0.3, 0.15, 400); this.tone(90, 0.25, 'sawtooth', 0.12, 60); },
+  racewin() {
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+    notes.forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.18, 0, i * 0.09));
+  },
+  achievement() { this.tone(880, 0.1, 'sine', 0.15); this.tone(1320, 0.2, 'sine', 0.15, 0, 0.1); },
   land() { this.noise(0.06, 0.08, 900); },
   click() { this.tone(700, 0.05, 'square', 0.1); },
   tick() { this.tone(1200, 0.03, 'square', 0.06); },

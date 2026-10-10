@@ -38,6 +38,7 @@ function parseLevel(def, index) {
   const fakePlats = new Set();
   const invis = new Map();    // idx -> {t}
   const lasers = new Set();        // idx — laser tiles (hazard only while ON)
+  const rising = new Set();        // idx — rising spike tiles (hazard only while UP)
   const conveyors = new Map();     // idx -> +1 (right) / -1 (left)
   const ice = new Set();           // idx — slippery floor tiles
   const onewayDoors = new Set();   // idx — solid, passable left→right only
@@ -74,6 +75,13 @@ function parseLevel(def, index) {
         case '~': solids[i] = 1; ice.add(i); break;           // ice floor (slippery)
         case '@': solids[i] = 1; onewayDoors.add(i); break;   // one-way door →
         case '&': zones.push({ kind: 'wind', x, y, w: 1, h: 1 }); break; // updraft
+        case 'J': entities.push({ type: 'bouncepad', x, y, cool: 0 }); break; // spring — LAUNCHES you
+        case 'o': entities.push({ type: 'pendulum', x, y, t: (x * 7 + y * 13) % 6.28 }); break; // spiked ball on a chain
+        case 'N': entities.push({ type: 'shooter', x, y, dir: 1, timer: 1.2 + (x % 3) * 0.4 }); break;  // spike shooter →
+        case 'n': entities.push({ type: 'shooter', x, y, dir: -1, timer: 1.2 + (y % 3) * 0.4 }); break; // spike shooter ←
+        case 'U': rising.add(i); break;                      // rising spikes (toggles like lasers)
+        case 'v': zones.push({ kind: 'vortex', x, y, w: 1, h: 1 }); break; // pulls you toward it
+        case 's': entities.push({ type: 'swappad', x, y, cool: 0 }); break;  // swap P1/P2 bodies (2P troll)
         case 'E': case 'M': break; // linked via def.traps below
         case 'P': spawn = { x, y }; break;
         case 'Q': spawn2 = { x, y }; break;
@@ -104,7 +112,7 @@ function parseLevel(def, index) {
     index, name: def.name, hint: def.hint,
     w, h, solids, hazards, oneway, zones, entities,
     crumble, coward, fakePlats, invis,
-    lasers, conveyors, ice, onewayDoors,
+    lasers, conveyors, ice, onewayDoors, rising,
     spawn, spawn2, goal, shift, shiftDone: false, def,
     solidAt(x, y) { return x >= 0 && y >= 0 && x < w && y < h && solids[y * w + x] === 1; },
     hazardAt(x, y) { return x >= 0 && y >= 0 && x < w && y < h && hazards[y * w + x] === 1; },
@@ -195,16 +203,27 @@ function createState(def, index, mode, opts) {
     laserPeriod: def.laserPeriod || 1.6,
     timeLeft: def.timeLimit || Infinity,
     dark: !!def.dark,
-    boss: null
+    boss: null,
+    bosses: [],
+    risingOn: false,   // rising spikes start DOWN (safe grace)
+    risingT: 2,
+    shots: [],
+    race: !!opts.race, // 🏁 2P RACE: first to the goal wins, individual lives
+    raceWinner: null
   };
   if (level.lasers.size) st.laserT = st.laserPeriod / 2; // grace period, starts OFF
   if (def.boss) {
-    const bw = 3 * TILE, bh = 2 * TILE;
+    const bw = (def.bossW || 3) * TILE, bh = (def.bossH || 2) * TILE;
     const floorRow = level.h - 2; // arena floor (bedrock is the last row)
-    st.boss = {
-      x: level.w * TILE - bw - 2 * TILE, y: floorRow * TILE - bh,
-      w: bw, h: bh, vx: 150, dir: -1, pause: 0, t: 0
-    };
+    const top = floorRow * TILE - bh;
+    const mk = (x, dir) => ({
+      x, y: top, w: bw, h: bh,
+      vx: def.bossSpeed || 150, dir,
+      pause: 0, pauseMax: def.bossPause || 0.6, t: 0
+    });
+    st.bosses.push(mk(level.w * TILE - bw - 2 * TILE, -1)); // enters from the right
+    if (def.bossCount === 2) st.bosses.push(mk(2 * TILE, 1)); // second Devil from the left (levels 400+)
+    st.boss = st.bosses[0]; // alias for compatibility
   }
   const p1 = new Player(level.spawn.x * TILE + TILE / 2, (level.spawn.y + 1) * TILE, '#4dd0e1', 'P1');
   st.players.push(p1);
@@ -236,7 +255,8 @@ function update(st, dt, inputs) {
   if (st.goalFlash > 0) st.goalFlash -= dt;
 
   updateEntities(st, dt);
-  if (st.boss) updateBoss(st, dt);
+  for (const b of st.bosses) updateBoss(st, b, dt);
+  updateShots(st, dt);
 
   // laser toggle (level-wide phase; rage mode shortens the cycle)
   if (st.level.lasers.size && !ended) {
@@ -245,6 +265,20 @@ function update(st, dt, inputs) {
       st.laserOn = !st.laserOn;
       st.laserT = (st.laserPeriod / 2) * (st.rageMul || 1);
       st.events.push({ type: 'laser', on: st.laserOn });
+    }
+  }
+
+  // rising spikes toggle (level-wide phase; rage mode shortens the cycle)
+  if (st.level.rising.size && !ended) {
+    st.risingT -= dt * (st.rageMul || 1);
+    if (st.risingT <= 0) {
+      st.risingOn = !st.risingOn;
+      st.risingT = 2;
+      for (const i of st.level.rising) {
+        st.level.hazards[i] = st.risingOn ? 1 : 0;
+        st.level.solids[i] = st.risingOn ? 1 : 0;
+      }
+      st.events.push({ type: 'rising', on: st.risingOn });
     }
   }
 
@@ -289,6 +323,13 @@ function stepPlayer(st, p, inp, dt) {
     if (rectOverlap(p.left, p.top, p.w, p.h, z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE)) {
       if (z.kind === 'reverse') p.inverted = true;
       if (z.kind === 'wind') inWind = true;
+      if (z.kind === 'vortex') {
+        // the TELL is the swirl — it pulls you toward its center, gently at first
+        const cx = z.x * TILE + TILE / 2;
+        p.vx += (cx - p.x) * 1400 * dt;
+        if (p.vx > MOVE_MAX * 1.2) p.vx = MOVE_MAX * 1.2;
+        if (p.vx < -MOVE_MAX * 1.2) p.vx = -MOVE_MAX * 1.2;
+      }
     }
   }
 
@@ -451,9 +492,30 @@ function checkHazards(st, p) {
       }
     }
   }
-  if (st.boss &&
-      rectOverlap(p.left + 2, p.top + 2, p.w - 4, p.h - 4, st.boss.x, st.boss.y, st.boss.w, st.boss.h)) {
-    killPlayer(st, p, 'boss'); return;
+  for (const b of st.bosses) {
+    if (rectOverlap(p.left + 2, p.top + 2, p.w - 4, p.h - 4, b.x, b.y, b.w, b.h)) {
+      killPlayer(st, p, 'boss'); return;
+    }
+  }
+  for (const e of level.entities) {
+    if (e.type === 'pendulum') {
+      const ax = e.x * TILE + TILE / 2, ay = (e.y + 1) * TILE;
+      const len = (level.spawn.y - e.y) * TILE;
+      const ang = 1.05 * Math.sin(e.t * 1.9);
+      const bx = ax + Math.sin(ang) * len, by = ay + Math.cos(ang) * len;
+      if (rectOverlap(p.left + 3, p.top + 3, p.w - 6, p.h - 6, bx - 13, by - 13, 26, 26)) {
+        killPlayer(st, p, 'pendulum'); return;
+      }
+    }
+  }
+  for (let si = st.shots.length - 1; si >= 0; si--) {
+    const s = st.shots[si];
+    if (rectOverlap(p.left + 3, p.top + 3, p.w - 6, p.h - 6, s.x, s.y, s.w, s.h)) {
+      killPlayer(st, p, 'shot');
+      burst(st, s.x + s.w / 2, s.y + s.h / 2, '#b0bec5', 8, 150);
+      st.shots.splice(si, 1);
+      return;
+    }
   }
   for (const e of level.entities) {
     if (e.type === 'killerdoor') {
@@ -523,8 +585,36 @@ function checkTriggers(st, p) {
         killPlayer(st, p, 'wronglever');
         st.events.push({ type: 'wronglever', p });
         break;
+      case 'bouncepad':
+        if (e.cool <= 0 && p.vy > -400) {
+          p.vy = -1500; p.onGround = false; p.coyote = 0; // BOING! 🍄
+          e.cool = 0.35;
+          st.events.push({ type: 'bounce', p });
+          burst(st, p.x, p.y, '#ffeb3b', 10, 160);
+        }
+        break;
+      case 'swappad':
+        if (e.cool <= 0 && st.players.length === 2) {
+          // 😈 2P TROLL: swap bodies with your friend
+          const a = st.players[0], b = st.players[1];
+          const tx = a.x, ty = a.y, tvx = a.vx, tvy = a.vy;
+          a.x = b.x; a.y = b.y; a.vx = b.vx; a.vy = b.vy;
+          b.x = tx; b.y = ty; b.vx = tvx; b.vy = tvy;
+          e.cool = 0.5;
+          st.events.push({ type: 'swap', p });
+          burst(st, p.x, p.y, '#e040fb', 12, 180);
+        } else if (e.cool <= 0) {
+          teleportPlayer(st, p); // 1P: the "swap" pad is just another backwards shortcut
+          e.cool = 0.5;
+          st.events.push({ type: 'teleport', p });
+        }
+        break;
       case 'goal':
-        if (st.mode === 1) {
+        if (st.race) {
+          st.raceWinner = p.label; // 🏁 FIRST TO THE GOAL WINS
+          st.events.push({ type: 'racewin', p });
+          winLevel(st);
+        } else if (st.mode === 1) {
           winLevel(st);
         } else {
           const both = st.players.every(q => q.alive &&
@@ -555,8 +645,8 @@ function killPlayer(st, p, cause) {
   st.deaths++;
   st.events.push({ type: 'death', p, cause });
   if (!st.firstDeathDone) { st.firstDeathDone = true; st.events.push({ type: 'firstdeath', p }); }
-  if (st.mode === 2) {
-    // SHARED FATE: one player's mistake kills BOTH 😈
+  if (st.mode === 2 && !st.race) {
+    // SHARED FATE: one player's mistake kills BOTH 😈 (not in RACE mode — there, lives are individual)
     for (const q of st.players) {
       if (q !== p && q.alive) {
         q.alive = false; q.vx = 0; q.vy = 0;
@@ -709,6 +799,22 @@ function updateEntities(st, dt) {
       }
     } else if (e.type === 'door' && e.open && e.openT < 1) {
       e.openT = Math.min(1, e.openT + dt * 3);
+    } else if (e.type === 'pendulum') {
+      e.t += dt; // the swing is sinusoidal + visible = the TELL
+    } else if (e.type === 'shooter') {
+      e.timer -= dt;
+      if (e.timer <= 0) {
+        e.timer = 2.2;
+        const py = level.spawn.y;
+        st.shots.push({
+          x: e.dir > 0 ? (e.x + 1) * TILE : e.x * TILE - 24,
+          y: py * TILE + TILE / 2 - 5,
+          vx: e.dir * 420, w: 24, h: 10, life: 4
+        });
+        st.events.push({ type: 'shoot', x: e.x * TILE, y: e.y * TILE });
+      }
+    } else if ((e.type === 'bouncepad' || e.type === 'swappad') && e.cool > 0) {
+      e.cool -= dt;
     }
   }
   // rocks
@@ -734,8 +840,7 @@ function breakRock(st, rock) {
 /* ---------- 👹 THE DEVIL (boss) — rolls along the arena floor ----------
    The TELL: he is huge, he is right there, and he ROARS + shakes
    before every direction change. Hide on platforms or jump over him. */
-function updateBoss(st, dt) {
-  const b = st.boss;
+function updateBoss(st, b, dt) {
   b.t += dt;
   if (b.pause > 0) {
     b.pause -= dt;
@@ -743,13 +848,26 @@ function updateBoss(st, dt) {
     b.x += b.vx * b.dir * dt;
     const maxX = st.level.w * TILE - b.w;
     if (b.x <= 0) {
-      b.x = 0; b.dir = 1; b.pause = 0.6;
+      b.x = 0; b.dir = 1; b.pause = b.pauseMax;
       st.shake = Math.max(st.shake, 0.5);
       st.events.push({ type: 'bossroar' });
     } else if (b.x >= maxX) {
-      b.x = maxX; b.dir = -1; b.pause = 0.6;
+      b.x = maxX; b.dir = -1; b.pause = b.pauseMax;
       st.shake = Math.max(st.shake, 0.5);
       st.events.push({ type: 'bossroar' });
+    }
+  }
+}
+
+/* ---------- spike shooter projectiles ---------- */
+function updateShots(st, dt) {
+  for (let i = st.shots.length - 1; i >= 0; i--) {
+    const s = st.shots[i];
+    s.x += s.vx * dt;
+    s.life -= dt;
+    const cx = Math.floor((s.x + s.w / 2) / TILE), cy = Math.floor((s.y + s.h / 2) / TILE);
+    if (s.life <= 0 || s.x < -80 || s.x > st.level.w * TILE + 80 || st.level.solidAt(cx, cy)) {
+      st.shots.splice(i, 1);
     }
   }
 }

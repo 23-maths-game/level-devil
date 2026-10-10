@@ -17,6 +17,7 @@
       <div id="hud-level"></div>
       <div id="hud-right">
         <span id="hud-mode"></span>
+        <span id="hud-timer" class="hidden"></span>
         <span id="hud-time"></span>
         <span id="hud-deaths"></span>
       </div>
@@ -38,9 +39,12 @@
       <div class="btn-col">
         <button class="btn btn-big" id="btn-1p">😤 1 PLAYER</button>
         <button class="btn btn-big" id="btn-2p">👥 2 PLAYERS — shared fate</button>
-        <button class="btn" id="btn-select">🗺 LEVEL SELECT (150)</button>
+        <button class="btn" id="btn-select">🗺 LEVEL SELECT (500)</button>
         <button class="btn btn-hell" id="btn-endless">♾️ ENDLESS MODE — how deep can you go?</button>
         <button class="btn btn-hell" id="btn-hardcore">💀 HARDCORE — 1 life, back to level 1</button>
+        <button class="btn btn-hell" id="btn-race">🏁 2P RACE — first to the goal wins</button>
+        <button class="btn" id="btn-daily">📅 DAILY HELL — today's seeded level</button>
+        <button class="btn" id="btn-leaderboard">🏆 LEADERBOARD & ACHIEVEMENTS</button>
         <button class="btn" id="btn-rage">😈 RAGE MODE: ON</button>
         <button class="btn" id="btn-howto">❓ HOW TO PLAY</button>
         <button class="btn sound-toggle">🔊 SOUND: ON</button>
@@ -56,6 +60,7 @@
       <div class="mode-row">
         <button class="btn mode-pick active" data-mode="1">😤 1 Player</button>
         <button class="btn mode-pick" data-mode="2">👥 2 Players</button>
+        <button class="btn mode-pick" data-mode="race">🏁 2P Race</button>
       </div>
       <div id="level-grid"></div>
       <div class="btn-row">
@@ -100,7 +105,37 @@
             <li>Killer door — red pulsing outline</li>
             <li>Rock spawner — shadow on the ground BEFORE the rock drops</li>
             <li>Crusher — shadow + warning before it drops</li>
+            <li>Laser beam — bright RED while ON (kills), dim + dashed while OFF (safe)</li>
+            <li>Conveyor belt — glowing arrows show the direction</li>
+            <li>Ice floor — frost-blue with sparkles; you slide, you don't stop</li>
+            <li>Updraft wind — cyan zone with rising arrows; floaty inside</li>
+            <li>One-way door — blue with a green → arrow; forward only</li>
+            <li>Level timer — HUD countdown + ticking in the last 5 seconds</li>
+            <li>Darkness — spotlight around you; traps glow faintly red</li>
+            <li>The Devil (boss) — huge, visible, ROARS before changing direction</li>
+            <li>Bounce pad — yellow spring; it LAUNCHES you (boing!)</li>
+            <li>Pendulum — chain + spiked ball, swings in a visible arc</li>
+            <li>Spike shooter — barrel blinks red, then fires (shots are visible)</li>
+            <li>Rising spikes — cracks + shake right before they pop up</li>
+            <li>Vortex — purple swirl; pulls you toward its center</li>
+            <li>Swap pad — two-color swirl; swaps P1 and P2 bodies (2P)</li>
           </ul>
+          <h3>😈 Rage Mode (ON by default)</h3>
+          <ul><li>Die 8 times in a level → traps get FASTER (crumble / coward / laser / rising spikes). The level hates you more.</li></ul>
+          <h3>♾️ Endless / 💀 Hardcore / 🏁 Race / 📅 Daily</h3>
+          <ul>
+            <li><b>Endless:</b> starts at level 151 — generated levels ramp FOREVER (501, 502, 503… there is no ceiling). Beat level 500 and hit "Continue into Endless".</li>
+            <li><b>Hardcore:</b> ONE life. First death = run over. A full 500-level clear earns 🥉 / 🥈 / 🥇 medals.</li>
+            <li><b>Race (2P):</b> COMPETITION — first to the goal wins. Individual lives (no shared fate!). Pick "🏁 2P Race" in level select.</li>
+            <li><b>Daily Hell:</b> one seeded level per day — same for everyone, everywhere. Build a streak.</li>
+          </ul>
+          <h3>🏆 Leaderboard & 🏅 Achievements</h3>
+          <ul>
+            <li>Local leaderboard (zero server): Story any% · Endless streaks · Hardcore runs · Race wins. Top 10 + your name.</li>
+            <li>18 achievements to unlock — from "First Blood" to "Devil King".</li>
+          </ul>
+          <h3>😈 Secret</h3>
+          <ul><li>Type <b>DEVIL</b> in the main menu. You know you want to.</li></ul>
         </div>
       </div>
       <div class="btn-row"><button class="btn" id="btn-menu-from-howto">← Back</button></div>
@@ -148,6 +183,35 @@
     </div>
   </div>
 
+  <!-- RUN OVER (hardcore / endless / time up / daily) -->
+  <div id="screen-runover" class="screen hidden">
+    <div class="panel">
+      <h2 id="runover-title">RUN OVER</h2>
+      <div id="runover-stats" class="stats"></div>
+      <div class="btn-row">
+        <button class="btn btn-big" id="btn-runover-retry">🔁 Try again</button>
+        <button class="btn" id="btn-runover-menu">🏠 Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEADERBOARD & ACHIEVEMENTS -->
+  <div id="screen-leaderboard" class="screen hidden">
+    <div class="panel wide">
+      <h2>🏆 LEADERBOARD</h2>
+      <div class="lb-name-row">🏷️ Name: <input id="lb-name" maxlength="12" value="YOU"></div>
+      <div class="mode-row">
+        <button class="btn lb-tab active" data-lb="story">😤 Story (any%)</button>
+        <button class="btn lb-tab" data-lb="endless">♾️ Endless</button>
+        <button class="btn lb-tab" data-lb="hardcore">💀 Hardcore</button>
+        <button class="btn lb-tab" data-lb="race">🏁 Races</button>
+        <button class="btn lb-tab" data-lb="achievements">🏅 Achievements</button>
+      </div>
+      <div id="lb-list"></div>
+      <div class="btn-row"><button class="btn" id="btn-menu-from-lb">← Back</button></div>
+    </div>
+  </div>
+
   <!-- WIN SCREEN -->
   <div id="screen-win" class="screen hidden">
     <div class="panel">
@@ -156,6 +220,7 @@
       <div id="win-stats" class="stats"></div>
       <div class="btn-row">
         <button class="btn btn-big" id="btn-play-again">😈 Play again</button>
+        <button class="btn btn-hell" id="btn-win-endless">♾️ Continue into Endless</button>
         <button class="btn" id="btn-win-menu">🏠 Menu</button>
       </div>
     </div>

@@ -21,7 +21,9 @@ const RAGE_CURVE = [
   { upto: 100, emoji: '💀', label: 'Bas ek aur try…' },
   { upto: 120, emoji: '☠️', label: 'Welcome to Hell' },
   { upto: 150, emoji: '☠️💀', label: 'HELL MODE — you asked for this' },
-  { upto: Infinity, emoji: '☠️💀♾️', label: 'ENDLESS HELL' }
+  { upto: 300, emoji: '☠️💀', label: 'DEEP HELL — the Devil is warming up' },
+  { upto: 500, emoji: '☠️💀💀', label: "THE DEVIL'S PLAYGROUND — max difficulty" },
+  { upto: Infinity, emoji: '♾️', label: 'ENDLESS HELL — no ceiling' }
 ];
 function rageTag(i) { // i is 0-based
   const n = i + 1;
@@ -57,7 +59,7 @@ const rageFill = document.getElementById('rage-fill');
 const rageLabel = document.getElementById('rage-label');
 const elToast = document.getElementById('toast');
 const screens = {};
-for (const id of ['menu', 'select', 'pause', 'fakepause', 'complete', 'win', 'howto', 'runover']) {
+for (const id of ['menu', 'select', 'pause', 'fakepause', 'complete', 'win', 'howto', 'runover', 'leaderboard']) {
   screens[id] = document.getElementById('screen-' + id);
 }
 const levelGrid = document.getElementById('level-grid');
@@ -67,7 +69,9 @@ const soundBtns = document.querySelectorAll('.sound-toggle');
 const SAVE_KEY = 'trapdevil_rage_v2';
 function freshSave() {
   return { unlocked: 1, deaths: {}, best: {}, completed: {}, totalDeaths: 0, totalTime: 0, levelsCompleted: 0, muted: false, traps: [],
-    rageMode: true, bestEndless: 0, bestHardcore: 0, hardcoreBestTime: null, medalRank: 0 };
+    rageMode: true, bestEndless: 0, bestHardcore: 0, hardcoreBestTime: null, medalRank: 0,
+    lbName: 'YOU', leaderboard: { story: [], endless: [], hardcore: [], race: [] },
+    achievements: [], dailyBest: {}, dailyStreak: 0, raceWins: { P1: 0, P2: 0 } };
 }
 let save = freshSave();
 try {
@@ -82,12 +86,77 @@ try {
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ } }
 AudioFX.enabled = !save.muted;
 
+/* ---------- 🏅 achievements (18) ---------- */
+const ACHIEVEMENTS = [
+  { id: 'firstblood', icon: '💀', name: 'First Blood', desc: 'Die for the first time.' },
+  { id: 'troll100', icon: '🤬', name: 'Rage Lord', desc: 'Die 100 times. Total.' },
+  { id: 'bounce', icon: '🍄', name: 'Boing', desc: 'Bounce on a bounce pad.' },
+  { id: 'swap', icon: '🔀', name: 'Body Swap', desc: 'Swap bodies with your friend.' },
+  { id: 'laser', icon: '🔴', name: 'Laser Dodger', desc: 'Complete a laser level.' },
+  { id: 'dark', icon: '🌑', name: 'Night Owl', desc: 'Complete a darkness level.' },
+  { id: 'story24', icon: '😈', name: 'Troll Survivor', desc: 'Complete level 24 — the handcrafted gauntlet.' },
+  { id: 'story120', icon: '☠️', name: 'Hell Walker', desc: 'Complete level 120 — Welcome to Hell.' },
+  { id: 'story150', icon: '👹', name: 'Devil Slayer', desc: 'Complete level 150 — beat your first boss.' },
+  { id: 'story300', icon: '🔥', name: 'Deep Hell', desc: 'Complete level 300.' },
+  { id: 'story500', icon: '👑', name: 'Devil King', desc: 'Complete level 500 — beat the FINAL boss.' },
+  { id: 'endless10', icon: '♾️', name: 'Endless 10', desc: 'Survive 10 endless hell levels.' },
+  { id: 'hardcore50', icon: '💀', name: 'Hardcore 50', desc: 'Reach level 50 in a hardcore run.' },
+  { id: 'medal', icon: '🏆', name: 'Medalist', desc: 'Earn any speedrun medal (🥉/🥈/🥇).' },
+  { id: 'daily', icon: '📅', name: 'Daily Devil', desc: "Complete today's Daily Hell." },
+  { id: 'daily7', icon: '📅🔥', name: 'Daily Streak 7', desc: 'Complete Daily Hell 7 days in a row.' },
+  { id: 'race5', icon: '🏁', name: 'Racer', desc: 'Win 5 races.' },
+  { id: 'cheat', icon: '😈', name: 'Cheat Accepted', desc: 'Type DEVIL in the menu.' }
+];
+function unlockAchievement(id) {
+  if (!save.achievements) save.achievements = [];
+  if (save.achievements.indexOf(id) !== -1) return;
+  save.achievements.push(id);
+  persist();
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  if (a) { AudioFX.achievement(); toast('🏅 ACHIEVEMENT UNLOCKED: ' + a.icon + ' ' + a.name, 'ok'); }
+}
+
+/* ---------- 🏆 leaderboard (local, zero-dependency) ---------- */
+function recordScore(kind, value) {
+  const lb = save.leaderboard[kind];
+  const min = lb.length ? Math.min.apply(null, lb.map(e => e.value)) : -Infinity;
+  if (lb.length >= 10 && value <= min) return;
+  lb.push({ name: save.lbName || 'YOU', value, date: new Date().toISOString().slice(0, 10) });
+  lb.sort((a, b) => b.value - a.value);
+  while (lb.length > 10) lb.pop();
+  persist();
+  toast('🏆 Leaderboard: new ' + kind + ' entry — ' + value + '!', 'ok');
+}
+function buildLeaderboard(kind) {
+  const el = document.getElementById('lb-list');
+  if (!el) return;
+  if (kind === 'achievements') return buildAchievements();
+  const lb = save.leaderboard[kind] || [];
+  const fmt = kind === 'story' ? v => fmtTime(v) : v => String(v);
+  el.innerHTML = lb.length ? lb.map((e, i) =>
+    '<div class="lb-row"><span>' + (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.') + '</span>' +
+    '<span>' + e.name + '</span><span>' + fmt(e.value) + '</span><span>' + e.date + '</span></div>'
+  ).join('') : '<div class="lb-row">No entries yet. Go set one!</div>';
+}
+function buildAchievements() {
+  const el = document.getElementById('lb-list');
+  el.innerHTML = ACHIEVEMENTS.map(a => {
+    const got = save.achievements.indexOf(a.id) !== -1;
+    return '<div class="lb-row ach ' + (got ? 'got' : '') + '"><span>' + a.icon + '</span><span>' + a.name + '</span><span>' + (got ? a.desc : '???') + '</span></div>';
+  }).join('');
+}
+function dateStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 /* ---------- runtime state ---------- */
 let st = null;
 let mode = 1;
-let runMode = 'story'; // 'story' | 'endless' | 'hardcore'
+let runMode = 'story'; // 'story' | 'endless' | 'hardcore' | 'race' | 'daily'
 let runStart = 0;
 let currentLevel = 0;
+let racePick = false;
+let cheatBuf = '';
 const genCache = new Map();
 function getDef(levelIndex) { // 0-based; beyond 150 → generated (♾️ endless)
   if (levelIndex < LEVELS.length) return LEVELS[levelIndex];
@@ -153,6 +222,21 @@ window.addEventListener('keyup', e => {
 });
 
 function onKeyPress(code) {
+  if (screen === 'menu') {
+    // 😈 secret: type DEVIL in the menu
+    const seq = { KeyD: 'D', KeyE: 'E', KeyV: 'V', KeyI: 'I', KeyL: 'L' }[code];
+    if (seq) {
+      cheatBuf = (cheatBuf + seq).slice(-5);
+      if (cheatBuf === 'DEVIL') {
+        cheatBuf = '';
+        save.unlocked = TOTAL;
+        persist();
+        unlockAchievement('cheat');
+        buildLevelGrid();
+        toast('😈 CHEAT ACCEPTED — all ' + TOTAL + ' levels unlocked. The Devil is proud.', 'troll');
+      }
+    }
+  }
   if (code === 'Escape') {
     if (screen === 'play') { escHeld = true; escHoldStart = performance.now(); }
     else if (screen === 'pause') resumeGame();
@@ -188,7 +272,21 @@ function startLevel(i, m, rm) {
   runMode = rm || 'story';
   currentLevel = i;
   if ((runMode === 'hardcore' && i === 0) || (runMode === 'endless' && i === 150)) runStart = performance.now();
-  st = createState(getDef(i), i, mode, { hardcore: runMode === 'hardcore' });
+  st = createState(getDef(i), i, mode, { hardcore: runMode === 'hardcore', race: runMode === 'race' });
+  st.vw = canvas.clientWidth; st.vh = canvas.clientHeight;
+  hudHint.classList.remove('show');
+  starCache = null;
+  AudioFX.init();
+  AudioFX.startMusic();
+  hideAllScreens();
+  showScreen('play');
+}
+function startDaily() {
+  const def = window.generateDailyDef(new Date());
+  runMode = 'daily';
+  mode = 1;
+  currentLevel = def.dailySeed % 180 + 299; // index of the underlying generated level
+  st = createState(def, currentLevel, 1);
   st.vw = canvas.clientWidth; st.vh = canvas.clientHeight;
   hudHint.classList.remove('show');
   starCache = null;
@@ -238,9 +336,9 @@ function buildLevelGrid() {
       b.textContent = '😈';
       const d = save.deaths[i] || 0;
       if (d > 0) { const s = document.createElement('span'); s.className = 'lvl-deaths'; s.textContent = d; b.appendChild(s); }
-      b.onclick = () => startLevel(i, mode, 'story');
+      b.onclick = () => startLevel(i, mode, racePick ? 'race' : 'story');
     } else {
-      b.onclick = () => startLevel(i, mode, 'story');
+      b.onclick = () => startLevel(i, mode, racePick ? 'race' : 'story');
     }
     levelGrid.appendChild(b);
   }
@@ -248,7 +346,8 @@ function buildLevelGrid() {
 buildLevelGrid();
 document.querySelectorAll('.mode-pick').forEach(b => {
   b.onclick = () => {
-    mode = parseInt(b.dataset.mode, 10);
+    if (b.dataset.mode === 'race') { mode = 2; racePick = true; }
+    else { mode = parseInt(b.dataset.mode, 10); racePick = false; }
     document.querySelectorAll('.mode-pick').forEach(x => x.classList.toggle('active', x === b));
   };
 });
@@ -278,7 +377,8 @@ function buildTrapedia() {
   const all = ['Spikes', 'Crumbling Floor', 'Coward Floor', 'Fake Platform', 'Invisible Wall', 'Reverse Zone',
     'Camera Flip', 'Layout Shift', 'Teleport Pad', 'Checkpoint', 'Fake Checkpoint', 'Fake Finish',
     'Lever', 'Wrong Lever', 'Door', 'Killer Door', 'Rock Spawner', 'Crusher', 'Moving Platform',
-    'Laser Beam', 'Conveyor Belt', 'Ice Floor', 'Updraft Wind', 'One-Way Door', 'Level Timer', 'Darkness', 'The Devil (Boss)'];
+    'Laser Beam', 'Conveyor Belt', 'Ice Floor', 'Updraft Wind', 'One-Way Door', 'Level Timer', 'Darkness', 'The Devil (Boss)',
+    'Bounce Pad', 'Pendulum', 'Spike Shooter', 'Rising Spikes', 'Vortex', 'Swap Pad'];
   el.innerHTML = all.map(t => {
     const knownTrap = known.indexOf(t) !== -1;
     return '<div class="trapedia-row ' + (knownTrap ? 'known' : 'unknown') + '">' +
@@ -348,6 +448,8 @@ function drainEvents() {
         save.totalDeaths++;
         save.deaths[currentLevel] = (save.deaths[currentLevel] || 0) + 1;
         persist();
+        if (save.totalDeaths === 1) unlockAchievement('firstblood');
+        if (save.totalDeaths >= 100) unlockAchievement('troll100');
         toast(DEATH_MSGS[save.totalDeaths % DEATH_MSGS.length], 'death');
         break;
       }
@@ -409,6 +511,25 @@ function drainEvents() {
         toast('😈 RAGE MODE ACTIVATED — the level hates you MORE now.', 'troll');
         break;
       case 'runover': onRunOver(); break;
+      case 'racewin':
+        AudioFX.racewin();
+        toast('🏁 ' + ev.p.label + ' WINS THE RACE! 🏁', 'ok');
+        break;
+      case 'bounce':
+        AudioFX.boing();
+        unlockAchievement('bounce');
+        break;
+      case 'swap':
+        AudioFX.swap();
+        unlockAchievement('swap');
+        toast('🔀 BODIES SWAPPED. 😈', 'troll');
+        break;
+      case 'rising':
+        if (ev.on) AudioFX.rise();
+        break;
+      case 'shoot':
+        AudioFX.shoot();
+        break;
       case 'jump': AudioFX.jump(); break;
       case 'land': AudioFX.land(); break;
       case 'crumble': AudioFX.noise(0.15, 0.1, 800); break;
@@ -446,6 +567,10 @@ function updateHUD() {
     hudMode.textContent = '💀 HARDCORE · 1 LIFE · ⏱ ' + fmtTime((performance.now() - runStart) / 1000);
   } else if (runMode === 'endless') {
     hudMode.textContent = '♾️ ENDLESS · streak ' + (n - 150);
+  } else if (runMode === 'race') {
+    hudMode.textContent = '🏁 RACE — first to goal wins!';
+  } else if (runMode === 'daily') {
+    hudMode.textContent = '📅 DAILY HELL';
   } else {
     hudMode.textContent = st.mode === 2 ? '👥 2P · SHARED FATE' : '😤 1P';
   }
@@ -471,16 +596,70 @@ function onLevelComplete() {
   if (screen !== 'play') return;
   const t = st.time;
   const deaths = st.deaths;
+  const lvl = currentLevel + 1;
+
+  // 📅 DAILY HELL (one-shot, does not touch story progress)
+  if (runMode === 'daily') {
+    const ds = dateStr(new Date());
+    const prev = save.dailyBest[ds];
+    const isBest = prev === undefined || t < prev;
+    if (isBest) save.dailyBest[ds] = t;
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    save.dailyStreak = save.dailyBest[dateStr(y)] !== undefined ? (save.dailyStreak || 0) + 1 : 1;
+    unlockAchievement('daily');
+    if (save.dailyStreak >= 7) unlockAchievement('daily7');
+    persist();
+    showRunOver('📅 DAILY HELL COMPLETE 😈',
+      'Time: ⏱ ' + fmtTime(t) + (isBest ? ' (new best! 🏆)' : ' (best: ' + fmtTime(prev) + ')') + '<br>' +
+      'Daily streak: 📅 ' + save.dailyStreak + ' day' + (save.dailyStreak === 1 ? '' : 's') + '<br>' +
+      'Same level for everyone today. Come back tomorrow!');
+    return;
+  }
+
   const prevBest = save.best[currentLevel];
   const isBest = prevBest === undefined || t < prevBest;
-  if (isBest) save.best[currentLevel] = t;
-  save.completed[currentLevel] = t;
-  save.levelsCompleted = (save.levelsCompleted || 0) + 1;
-  save.totalTime = (save.totalTime || 0) + t;
+  if (runMode !== 'race') {
+    if (isBest) save.best[currentLevel] = t;
+    save.completed[currentLevel] = t;
+    save.levelsCompleted = (save.levelsCompleted || 0) + 1;
+    save.totalTime = (save.totalTime || 0) + t;
+  }
   if (runMode !== 'endless' && currentLevel + 2 > save.unlocked && currentLevel + 1 < TOTAL) save.unlocked = currentLevel + 2;
   if (runMode === 'endless') save.bestEndless = Math.max(save.bestEndless || 0, currentLevel + 1 - 150);
   if (runMode === 'hardcore') save.bestHardcore = Math.max(save.bestHardcore || 0, currentLevel + 1);
   persist();
+
+  // 🏅 achievements for completing this level
+  if (runMode === 'story' || runMode === 'race') {
+    if (lvl === 24) unlockAchievement('story24');
+    if (lvl === 120) unlockAchievement('story120');
+    if (lvl === 150) unlockAchievement('story150');
+    if (lvl === 300) unlockAchievement('story300');
+    if (lvl === 500) unlockAchievement('story500');
+  }
+  if (st.level.def.map.some(r => r.indexOf('B') !== -1)) unlockAchievement('laser');
+  if (st.level.def.dark) unlockAchievement('dark');
+  if (runMode === 'endless' && lvl - 150 >= 10) unlockAchievement('endless10');
+
+  // 🏁 RACE: first to the goal wins
+  if (runMode === 'race') {
+    const winner = st.raceWinner || 'P1';
+    save.raceWins[winner] = (save.raceWins[winner] || 0) + 1;
+    const totalWins = (save.raceWins.P1 || 0) + (save.raceWins.P2 || 0);
+    if (totalWins >= 5) unlockAchievement('race5');
+    recordScore('race', totalWins);
+    persist();
+    document.getElementById('complete-title').textContent = '🏁 ' + winner + ' WINS THE RACE!';
+    document.getElementById('complete-stats').innerHTML =
+      '<b>' + st.level.name + '</b><br>' +
+      'Winner: 🏁 ' + winner + '<br>' +
+      'Race wins — P1: ' + (save.raceWins.P1 || 0) + ' · P2: ' + (save.raceWins.P2 || 0) + '<br>' +
+      'Time: ⏱ ' + fmtTime(t);
+    document.getElementById('btn-next').textContent = '▶ Race the next level';
+    showScreen('complete');
+    return;
+  }
+
   if (runMode === 'endless') {
     document.getElementById('complete-title').textContent = 'HELL SURVIVED 😈';
     document.getElementById('complete-stats').innerHTML =
@@ -515,6 +694,15 @@ function showWinScreen() {
     persist();
     medalHtml = '<br>💀 Hardcore clear time: ⏱ ' + fmtTime(secs) + ' — ' +
       ['🎖️ FINISHER', '🥉 BRONZE', '🥈 SILVER', '🥇 GOLD'][rank];
+  } else if (runMode === 'story') {
+    let total = 0; for (const k in save.best) total += save.best[k];
+    const rank = total < 3600 ? 3 : total < 7200 ? 2 : total < 14400 ? 1 : 0;
+    if (rank > 0) {
+      unlockAchievement('medal');
+      recordScore('story', total);
+      medalHtml = '<br>Story any% time: ⏱ ' + fmtTime(total) + ' — ' +
+        ['🎖️ FINISHER', '🥉 BRONZE', '🥈 SILVER', '🥇 GOLD'][rank];
+    }
   }
   document.getElementById('win-stats').innerHTML =
     'Levels survived: 😈 ' + (runMode === 'endless' ? '♾️ ' + (currentLevel + 1 - 150) : TOTAL) + '<br>' +
@@ -536,6 +724,8 @@ function onRunOver() {
   const reached = currentLevel + 1;
   if (runMode === 'hardcore') {
     save.bestHardcore = Math.max(save.bestHardcore || 0, reached);
+    if (reached >= 50) unlockAchievement('hardcore50');
+    if (reached >= 5) recordScore('hardcore', reached);
     persist();
     showRunOver('💀 HARDCORE RUN ENDED',
       'You died on <b>Level ' + reached + '</b> — ' + st.level.name + '<br>' +
@@ -544,11 +734,18 @@ function onRunOver() {
   } else if (runMode === 'endless') {
     const streak = reached - 150;
     save.bestEndless = Math.max(save.bestEndless || 0, streak);
+    if (streak >= 10) unlockAchievement('endless10');
+    if (streak >= 3) recordScore('endless', streak);
     persist();
     showRunOver('♾️ RUN OVER',
       'You survived <b>' + streak + '</b> hell level' + (streak === 1 ? '' : 's') + '<br>' +
       'Last level: ' + reached + ' — ' + st.level.name + '<br>' +
       'Best streak: ♾️ ' + save.bestEndless);
+  } else if (runMode === 'daily') {
+    const ds = dateStr(new Date());
+    showRunOver('📅 DAILY HELL — FAILED',
+      'Best today: ⏱ ' + (save.dailyBest[ds] ? fmtTime(save.dailyBest[ds]) : '—') + '<br>' +
+      'Come back tomorrow for a new hell level. 😈');
   }
 }
 
@@ -558,6 +755,9 @@ document.getElementById('btn-2p').onclick = () => { AudioFX.init(); startLevel(M
 document.getElementById('btn-endless').onclick = () => { AudioFX.init(); startLevel(150, 1, 'endless'); };
 document.getElementById('btn-hardcore').onclick = () => { AudioFX.init(); startLevel(0, 1, 'hardcore'); };
 document.getElementById('btn-rage').onclick = toggleRageMode;
+document.getElementById('btn-race').onclick = () => { AudioFX.init(); startLevel(Math.min(save.unlocked - 1, TOTAL - 1), 2, 'race'); };
+document.getElementById('btn-daily').onclick = () => { AudioFX.init(); startDaily(); };
+document.getElementById('btn-leaderboard').onclick = () => { buildLeaderboard('story'); showScreen('leaderboard'); };
 document.getElementById('btn-select').onclick = () => { buildLevelGrid(); showScreen('select'); };
 document.getElementById('btn-howto').onclick = () => showScreen('howto');
 document.getElementById('btn-menu-from-select').onclick = () => showScreen('menu');
@@ -575,9 +775,23 @@ document.getElementById('btn-win-menu').onclick = () => quitToMenu();
 document.getElementById('btn-runover-retry').onclick = () => {
   if (runMode === 'hardcore') startLevel(0, 1, 'hardcore');
   else if (runMode === 'endless') startLevel(150, 1, 'endless');
+  else if (runMode === 'daily') startDaily();
   else startLevel(currentLevel, mode, 'story');
 };
 document.getElementById('btn-runover-menu').onclick = () => quitToMenu();
+document.getElementById('btn-menu-from-lb').onclick = () => showScreen('menu');
+document.getElementById('btn-win-endless').onclick = () => startLevel(150, 1, 'endless');
+const lbName = document.getElementById('lb-name');
+if (lbName) {
+  lbName.value = save.lbName || 'YOU';
+  lbName.onchange = e => { save.lbName = (e.target.value || 'YOU').slice(0, 12); persist(); };
+}
+document.querySelectorAll('.lb-tab').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.lb-tab').forEach(x => x.classList.toggle('active', x === b));
+    buildLeaderboard(b.dataset.lb);
+  };
+});
 soundBtns.forEach(b => { b.onclick = toggleSound; });
 
 /* ============================================================
@@ -642,7 +856,8 @@ function drawWorld() {
   }
   for (const z of level.zones) drawZone(z);
   for (const e of level.entities) drawEntity(e);
-  if (st.boss) drawBoss(st.boss);
+  for (const b of st.bosses) drawBoss(b);
+  for (const s of st.shots) drawShot(s);
   for (const r of st.rocks) drawRock(r);
   if (st.dark) applyDarkness(x0, x1, y0, y1);
   if (st.dark) {
@@ -782,6 +997,7 @@ function drawTile(level, x, y) {
       break;
     }
     case 'B': drawLaser(px, py); break;
+    case 'U': drawRising(px, py); break;
     case '>': case '<': drawConveyor(px, py, ch === '>'); break;
     case '~': drawIce(px, py); break;
     case '@': drawOneWayDoor(px, py); break;
@@ -903,6 +1119,31 @@ function drawOneWayDoor(px, py) {
   ctx.fillText('→', px + 13, py + 27);
 }
 
+function drawRising(px, py) {
+  drawStone(px, py, false);
+  if (st.risingOn) {
+    drawSpikes(px, py + 10, 'up');
+  } else {
+    // the TELL: cracks + a shake right before the spikes pop up
+    const warn = st.risingT < 0.4;
+    ctx.save();
+    if (warn) ctx.translate(Math.sin(st.time * 50) * 1.5, 0);
+    drawCracks(px, py, warn ? 0.9 : 0.3);
+    ctx.restore();
+  }
+}
+
+function drawShot(s) {
+  ctx.fillStyle = '#b0bec5';
+  ctx.beginPath();
+  ctx.moveTo(s.x, s.y + s.h / 2);
+  ctx.lineTo(s.x + s.w, s.y);
+  ctx.lineTo(s.x + s.w, s.y + s.h);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#78909c';
+  ctx.fillRect(s.x + s.w - 6, s.y + 2, 6, s.h - 4);
+}
+
 function dashedRect(x, y, w, h, color) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
@@ -943,6 +1184,16 @@ function drawZone(z) {
       const yy = py + 30 - off - k * 16;
       ctx.beginPath();
       ctx.moveTo(px + s / 2, yy); ctx.lineTo(px + s / 2 - 5, yy + 8); ctx.lineTo(px + s / 2 + 5, yy + 8);
+      ctx.stroke();
+    }
+  } else if (z.kind === 'vortex') {
+    ctx.fillStyle = 'rgba(123,31,162,' + (0.1 + 0.14 * pulse).toFixed(3) + ')';
+    ctx.fillRect(px, py, s, t);
+    ctx.strokeStyle = 'rgba(206,147,216,0.85)';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath();
+      ctx.arc(px + s / 2, py + t / 2, 6 + k * 7 + (st.time * 20) % 7, 0, Math.PI * 1.5);
       ctx.stroke();
     }
   } else if (z.kind === 'shift') {
@@ -1095,6 +1346,61 @@ function drawEntity(e) {
         ctx.ellipse(px + 20, e.py + TILE + e.drop, 20, 5, 0, 0, 7);
         ctx.fill();
       }
+      break;
+    }
+    case 'bouncepad': {
+      const squash = e.cool > 0 ? 6 : 0;
+      ctx.fillStyle = '#f9a825';
+      for (let k = 0; k < 3; k++) ctx.fillRect(px + 8 + k * 8, py + 12 - squash, 6, 14 + squash);
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(px + 5, py + 26 - squash, TILE - 10, 8 + squash);
+      ctx.fillStyle = '#fff59d';
+      ctx.fillRect(px + 3, py + 30 - squash, TILE - 6, 4);
+      break;
+    }
+    case 'pendulum': {
+      const ax = px + TILE / 2, ay = py + TILE;
+      const len = (st.level.spawn.y - e.y) * TILE;
+      const ang = 1.05 * Math.sin(e.t * 1.9);
+      const bx = ax + Math.sin(ang) * len, by = ay + Math.cos(ang) * len;
+      ctx.strokeStyle = '#90a4ae';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.fillStyle = '#37474f';
+      ctx.beginPath(); ctx.arc(bx, by, 13, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#b0bec5';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(bx, by, 8, 0, 7); ctx.stroke();
+      ctx.fillStyle = '#ef5350';
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(bx + Math.cos(a) * 13, by + Math.sin(a) * 13);
+        ctx.lineTo(bx + Math.cos(a) * 20, by + Math.sin(a) * 20);
+        ctx.lineTo(bx + Math.cos(a + 0.5) * 20, by + Math.sin(a + 0.5) * 20);
+        ctx.closePath(); ctx.fill();
+      }
+      break;
+    }
+    case 'shooter': {
+      ctx.fillStyle = '#263238';
+      ctx.fillRect(px + 2, py + 10, TILE - 4, 20);
+      ctx.fillStyle = '#455a64';
+      if (e.dir > 0) ctx.fillRect(px + TILE - 12, py + 14, 10, 12);
+      else ctx.fillRect(px + 2, py + 14, 10, 12);
+      ctx.fillStyle = (st.time % 0.5) < 0.25 ? '#ff5252' : '#ffcdd2';
+      ctx.beginPath(); ctx.arc(e.dir > 0 ? px + TILE - 6 : px + 6, py + 20, 4, 0, 7); ctx.fill();
+      break;
+    }
+    case 'swappad': {
+      ctx.fillStyle = '#1a0a20';
+      ctx.beginPath(); ctx.ellipse(px + 20, py + 30, 16, 6, 0, 0, 7); ctx.fill();
+      const t2 = st.time * 3;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#e040fb';
+      ctx.beginPath(); ctx.arc(px + 20, py + 20, 11 + Math.sin(t2) * 2, t2, t2 + 2.2); ctx.stroke();
+      ctx.strokeStyle = '#4dd0e1';
+      ctx.beginPath(); ctx.arc(px + 20, py + 20, 11 + Math.sin(t2) * 2, t2 + Math.PI, t2 + Math.PI + 2.2); ctx.stroke();
       break;
     }
     case 'mover': {

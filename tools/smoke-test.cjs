@@ -266,7 +266,115 @@ const holdLeft = () => [{ left: true, right: false, jump: false, jumpPressed: fa
 // 25. HELL tier structure
 {
   check('HELL tier: L136 is dark, L150 is the boss level', LEVEL_DEFS[135].dark === true && LEVEL_DEFS[149].boss === true);
-  check('HELL tier: 150 levels total', LEVEL_DEFS.length === 150);
+}
+
+// ---------- RAGE EDITION 3.0 tests ----------
+// 26. 500 levels + boss fights at 200/250/300/350/400/450/500
+{
+  check('3.0: 500 levels total', LEVEL_DEFS.length === 500);
+  const bossOk = [200, 250, 300, 350, 400, 450, 500].every(n => LEVEL_DEFS[n - 1].boss === true);
+  check('3.0: boss fights at 200/250/300/350/400/450/500', bossOk);
+}
+
+// 27. two bosses at 400+, speed scales
+{
+  const st400 = createState(LEVEL_DEFS[399], 399, 1);
+  const st500 = createState(LEVEL_DEFS[499], 499, 1);
+  check('3.0: level 400+ has TWO Devils', st400.bosses.length === 2);
+  check('3.0: final boss is faster than circle 4', LEVEL_DEFS[499].bossSpeed > LEVEL_DEFS[199].bossSpeed);
+  check('3.0: level 500 is the Devil King', /DEVIL KING/.test(LEVEL_DEFS[499].name));
+}
+
+// 28. bounce pad launches (L151)
+{
+  const st = createState(LEVEL_DEFS[150], 150, 1);
+  const p = st.players[0];
+  p.x = 6 * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0; // on the J pad
+  update(st, DT, noInput);
+  check('L151 bounce pad: launches the player', p.vy < -1000 && st.events.some(e => e.type === 'bounce'));
+}
+
+// 29. pendulum kills (L152)
+{
+  const st = createState(LEVEL_DEFS[151], 151, 1);
+  const pend = st.level.entities.find(e => e.type === 'pendulum');
+  pend.t = 0; // ball at the bottom of its arc
+  const p = st.players[0];
+  p.x = pend.x * 40 + 20; p.y = 360; p.vx = 0; p.vy = 0;
+  update(st, DT, noInput);
+  check('L152 pendulum: spiked ball kills', st.events.some(e => e.type === 'death' && e.cause === 'pendulum'));
+}
+
+// 30. spike shooter fires (L153)
+{
+  const st = createState(LEVEL_DEFS[152], 152, 1);
+  let t = 0;
+  while (t < 3) { update(st, DT, idle()); t += DT; }
+  check('L153 spike shooter: fires shots', st.events.some(e => e.type === 'shoot'));
+}
+
+// 31. rising spikes toggle (L154)
+{
+  const st = createState(LEVEL_DEFS[153], 153, 1);
+  st.risingT = 0.1;
+  let t = 0;
+  while (t < 0.3) { update(st, DT, idle()); t += DT; }
+  check('L154 rising spikes: pop UP and become hazards', st.risingOn && st.level.hazardAt(6, 9) && st.level.solidAt(6, 9));
+}
+
+// 32. vortex pulls (L155)
+{
+  const st = createState(LEVEL_DEFS[154], 154, 1);
+  const p = st.players[0];
+  p.x = 774; p.y = 360; p.vx = 0; p.vy = 0; // inside one vortex zone, left of its center, over floor
+  let t = 0;
+  while (t < 0.2) { update(st, DT, idle()); t += DT; }
+  check('L155 vortex: pulls the player toward its center', p.x > 774);
+}
+
+// 33. swap pad swaps bodies (L156, 2P)
+{
+  const st = createState(LEVEL_DEFS[155], 155, 2);
+  const a = st.players[0], b = st.players[1];
+  a.x = 10 * 40 + 20; a.y = 360; // P1 on the swap pad
+  b.x = 20 * 40 + 20; b.y = 360; // P2 on the other pad
+  const ax = a.x, bx = b.x;
+  update(st, DT, idle());
+  check('L156 swap pad: P1 and P2 trade bodies', a.x === bx && b.x === ax && st.events.some(e => e.type === 'swap'));
+}
+
+// 34. RACE mode: first to goal wins, individual lives
+{
+  const st = createState(LEVEL_DEFS[0], 0, 2, { race: true });
+  let t = 0;
+  while (t < 5 && !st.complete) {
+    update(st, DT, [holdRight()[0], { left: false, right: false, jump: false, jumpPressed: false }]);
+    t += DT;
+  }
+  check('RACE: first player to the goal wins', st.complete && st.raceWinner === 'P1' && st.events.some(e => e.type === 'racewin'));
+}
+{
+  const st = createState(LEVEL_DEFS[1], 1, 2, { race: true });
+  let t = 0;
+  while (t < 4) { update(st, DT, [holdRight()[0], holdRight()[0]]); t += DT; }
+  check('RACE: deaths are individual (no shared fate)', !st.events.some(e => e.type === 'bothdie') && st.players[1].alive);
+}
+
+// 35. daily hell: deterministic per day
+{
+  const { generateDailyDef } = require('../js/levels.js');
+  const d1 = generateDailyDef(new Date(2026, 9, 10));
+  const d2 = generateDailyDef(new Date(2026, 9, 10));
+  const d3 = generateDailyDef(new Date(2026, 9, 11));
+  check('Daily Hell: same day = same level, different day = different', JSON.stringify(d1.map) === JSON.stringify(d2.map) && JSON.stringify(d1.map) !== JSON.stringify(d3.map));
+}
+
+// 36. endless beyond 500
+{
+  const { generateLevelDef } = require('../js/levels.js');
+  let ok = true;
+  try { const s = createState(generateLevelDef(501), 500, 1); ok = !!s.level.spawn && !!s.level.goal; } catch (e) { ok = false; }
+  check('Endless: level 501+ generates and parses', ok);
 }
 
 console.log('');
